@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.tools/
+src-tauri/target/
+src-tauri/gen/schemas/
+*.tsbuildinfo
+*.stronghold
+*.sqlite*
+*.db*
+*.log
+.env*
+!.env.example

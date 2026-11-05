@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "StickyNote",
+  "version": "0.1.0",
+  "identifier": "com.gitsticky.stickynote",
+  "build": {
+    "beforeDevCommand": "pnpm.cmd dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm.cmd build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "StickyNote",
+        "width": 1120,
+        "height": 780,
+        "minWidth": 320,
+        "minHeight": 480
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico", "icons/icon.icns"],
+    "targets": ["nsis"],
+    "shortDescription": "GitHubと同期する付箋メモ",
+    "category": "Productivity",
+    "android": { "minSdkVersion": 24 }
+  },
+  "plugins": { "sql": { "preload": ["sqlite:stickynote.db"] } }
+}
