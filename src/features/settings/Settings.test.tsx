@@ -58,6 +58,50 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.useRealTimers());
+it('explains an empty repository and enables connection after creating its first branch', async () => {
+  connected = true;
+  useAuth.setState({ status: { ...authStatus, connected: true, mode: 'oauth' } });
+  let available: string[] = [];
+  const previous = call.getMockImplementation()!;
+  call.mockImplementation(<T,>(command: string, args?: Record<string, unknown>) =>
+    command === 'github_branches'
+      ? Promise.resolve(available as T)
+      : (previous(command, args) as Promise<T>),
+  );
+  await act(async () => {
+    render(<SettingsDialog db={new MemoryDatabase()} onClose={() => {}} />);
+  });
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText('同期するリポジトリ'), { target: { value: '12' } });
+  });
+  expect(screen.getByText(/最初のコミット/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'このリポジトリに接続' })).toBeDisabled();
+  available = ['main'];
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'ブランチを再取得' }));
+  });
+  expect(screen.queryByText(/最初のコミット/)).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'このリポジトリに接続' })).toBeEnabled();
+});
+it('distinguishes a branch permission failure from an empty repository', async () => {
+  connected = true;
+  useAuth.setState({ status: { ...authStatus, connected: true, mode: 'oauth' } });
+  const previous = call.getMockImplementation()!;
+  call.mockImplementation(<T,>(command: string, args?: Record<string, unknown>) =>
+    command === 'github_branches'
+      ? Promise.reject(new AppError('permission', 'Contents: Read and writeを確認してください。'))
+      : (previous(command, args) as Promise<T>),
+  );
+  await act(async () => {
+    render(<SettingsDialog db={new MemoryDatabase()} onClose={() => {}} />);
+  });
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText('同期するリポジトリ'), { target: { value: '12' } });
+  });
+  expect(screen.getByRole('alert')).toHaveTextContent('Contents: Read and write');
+  expect(screen.queryByText(/最初のコミット/)).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'このリポジトリに接続' })).toBeDisabled();
+});
 it('uses a browser code, respects poll delays, then lets the user select a repository', async () => {
   const db = new MemoryDatabase();
   render(<SettingsDialog db={db} onClose={() => {}} />);

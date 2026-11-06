@@ -2,7 +2,7 @@
 
 標準フローは「GitHubで接続」→ブラウザで短いコードを入力→リポジトリを許可→アプリの一覧から同期先を選択、です。利用者がPATやパスフレーズを作成する必要はありません。
 
-このリポジトリではまだGitHub Appが登録されていません。未設定のビルドではログインを無効化し、その状態を画面に表示します。ローカルメモは利用できます。存在しないClient IDで接続できると装うことはしません。
+このリポジトリの `src-tauri/github-app.json` にはGitHub App `gitstickynote` の公開Client ID / slugを設定済みです。別のGitHub Appを使う場合は、以下の手順で登録して公開情報を変更してください。未設定のビルドではログインを無効化し、その状態を画面に表示します。ローカルメモは利用できます。
 
 ## 開発者が一度だけ行う登録
 
@@ -14,8 +14,11 @@
 6. Repository permissionsは **Contents: Read and write** と、自動付与される **Metadata: Read-only** だけにします。Account permissions / Organization permissions / Eventsは追加しません。
 7. 他のGitHubアカウントにも配布する場合は、インストール対象を **Any account** にします。自分だけで試すなら自分のアカウントに限定しても構いません。
 8. 登録後に表示される **Client ID** と、公開App URL `https://github.com/apps/APP-SLUG` の **APP-SLUG** を控えます。App IDとは異なります。
+9. 登録後に「You must generate a private key in order to install your GitHub App」と表示されたら、同じ設定ページの **Private keys → Generate a private key** を押します。ダウンロードされる `.pem` は開発者が安全に保管します。その後、左側の **Install App** から自分のアカウントとメモ用リポジトリを選択できます。
 
 Client SecretとApp秘密鍵は、このアプリのDevice Flowと更新には使用しません。アプリへ埋め込んだり、この設定ファイルへ記載したりしないでください。
+
+GitHubの登録画面で求められる秘密鍵の生成と、StickyNoteに秘密鍵を渡すことは別です。生成した `.pem` はGitへコミットせず、チャットにも送信しないでください。
 
 ## ビルドに設定する公開情報
 

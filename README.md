@@ -5,7 +5,7 @@ Windows / Android向けの、GitHub同期型付箋メモアプリです。メモ
 ## 主な機能
 
 - 日本語UI、レスポンシブな付箋グリッド、6色、ピン留め、本文・タイトル検索
-- CodeMirror 6のMarkdown編集、GFMプレビュー、Undo / Redo、500ms自動保存、Ctrl+S
+- CodeMirror 6のMarkdown編集とライブプレビューの同時表示、編集／分割／プレビュー切替、Undo / Redo、500ms自動保存、Ctrl+S
 - オフラインでの作成・編集・削除、再起動後の永続化
 - SHAによる双方向同期、削除マーカー、競合コピー、同期中の追加編集の保護
 - 起動・復帰・編集後15秒での自動同期、手動同期、自動同期の無効化
@@ -60,7 +60,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/android-build.ps
 
 PATの作成・貼り付けや、起動ごとのパスフレーズ入力は不要です。トークンの取得・更新・OS保護領域への保存をRustが担当し、Reactに秘密情報を返しません。新しい端末では同じGitHub Appとリポジトリへ接続してください。
 
-**開発者によるGitHub Appの登録と公開Client ID / slugの設定が一度だけ必要です。** 現時点では未登録なので、未設定ビルドの接続ボタンは無効です。[登録・ビルド設定の手順](docs/github-auth.md)を参照してください。Client SecretやApp秘密鍵は不要です。
+同梱の `src-tauri/github-app.json` にはGitHub Appの公開Client ID / slugを設定済みです。別のGitHub Appを使う場合は、[登録・ビルド設定の手順](docs/github-auth.md)に従って設定を変更してください。未設定ビルドの接続ボタンは無効です。Client SecretやApp秘密鍵は不要です。
 
 接続時にはリポジトリとブランチを確認し、書き込み時にも権限エラーを判定します。エラー時もローカル変更は維持します。旧Stronghold保管庫は残し、必要な場合だけ一度のパスフレーズ入力で移行できます。
 

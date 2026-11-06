@@ -4,7 +4,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { EditorView } from '@codemirror/view';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { X, Pin, Trash2, Eye, Pencil, Check, Loader2 } from 'lucide-react';
+import { X, Pin, Trash2, Eye, Pencil, Columns2, Check, Loader2 } from 'lucide-react';
 import { Modal } from '../../components/Modal';
 import { Button } from '../../components/ui/button';
 import type { LocalDatabase } from '../../db';
@@ -27,7 +27,7 @@ export const Editor = forwardRef<
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [state, setState] = useState('ローカル保存済み');
   const [error, setError] = useState('');
-  const [preview, setPreview] = useState(false);
+  const [view, setView] = useState<'edit' | 'split' | 'preview'>('split');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [closing, setClosing] = useState(false);
   const flush = useCallback(async () => {
@@ -187,14 +187,69 @@ export const Editor = forwardRef<
           >
             <Pin size={18} fill={draft.pinned ? 'currentColor' : 'none'} />
           </Button>
-          <Button variant="outline" onClick={() => setPreview(!preview)}>
-            {preview ? <Pencil size={16} /> : <Eye size={16} />} {preview ? '編集' : 'プレビュー'}
-          </Button>
         </div>
       </div>
-      <div className="editor-body">
-        {preview ? (
-          <div className="markdown">
+      <div className="editor-viewbar">
+        <div className="editor-modes" role="group" aria-label="エディタの表示方法">
+          <Button
+            variant="ghost"
+            aria-label="編集のみ"
+            aria-pressed={view === 'edit'}
+            onClick={() => setView('edit')}
+          >
+            <Pencil size={15} /> 編集
+          </Button>
+          <Button
+            variant="ghost"
+            aria-label="編集とプレビュー"
+            aria-pressed={view === 'split'}
+            onClick={() => setView('split')}
+          >
+            <Columns2 size={15} /> 分割
+          </Button>
+          <Button
+            variant="ghost"
+            aria-label="プレビューのみ"
+            aria-pressed={view === 'preview'}
+            onClick={() => setView('preview')}
+          >
+            <Eye size={15} /> プレビュー
+          </Button>
+        </div>
+        <span className="editor-count">{draft.body_md.length.toLocaleString('ja-JP')} 文字</span>
+      </div>
+      <div className={'editor-body editor-view-' + view}>
+        <section
+          className="editor-pane source-pane"
+          aria-label="Markdown編集"
+          hidden={view === 'preview'}
+        >
+          <div className="editor-pane-heading">
+            <span>MARKDOWN</span>
+            <span>編集</span>
+          </div>
+          <div className="editor-pane-content">
+            <CodeMirror
+              aria-label="Markdown本文"
+              value={draft.body_md}
+              extensions={extensions}
+              theme={document.documentElement.classList.contains('dark') ? 'dark' : 'light'}
+              onChange={(value) => update({ body_md: value })}
+              basicSetup={{ lineNumbers: false, foldGutter: false, highlightActiveLine: false }}
+              placeholder="ここから、思いついたことを。Markdownが使えます。"
+            />
+          </div>
+        </section>
+        <section
+          className="editor-pane preview-pane"
+          aria-label="Markdownプレビュー"
+          hidden={view === 'edit'}
+        >
+          <div className="editor-pane-heading">
+            <span>PREVIEW</span>
+            <span>入力に合わせて更新</span>
+          </div>
+          <div className="editor-pane-content markdown">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               skipHtml
@@ -207,20 +262,10 @@ export const Editor = forwardRef<
                 ),
               }}
             >
-              {draft.body_md || 'まだ本文がありません。編集から書き始めましょう。'}
+              {draft.body_md || '本文を書き始めると、ここにプレビューが表示されます。'}
             </ReactMarkdown>
           </div>
-        ) : (
-          <CodeMirror
-            aria-label="Markdown本文"
-            value={draft.body_md}
-            extensions={extensions}
-            theme={document.documentElement.classList.contains('dark') ? 'dark' : 'light'}
-            onChange={(value) => update({ body_md: value })}
-            basicSetup={{ lineNumbers: false, foldGutter: false, highlightActiveLine: false }}
-            placeholder="ここから、思いついたことを。Markdownが使えます。"
-          />
-        )}
+        </section>
       </div>
       {error && (
         <p role="alert" className="error">

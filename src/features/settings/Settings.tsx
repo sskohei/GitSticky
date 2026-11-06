@@ -31,6 +31,8 @@ export function SettingsDialog({ db, onClose }: { db: LocalDatabase; onClose: ()
   const [form, setForm] = useState(settings);
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [branchesError, setBranchesError] = useState('');
   const [session, setSession] = useState<DeviceSession | null>(null);
   const [starting, setStarting] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -84,15 +86,19 @@ export function SettingsDialog({ db, onClose }: { db: LocalDatabase; onClose: ()
   const loadBranches = useCallback(async (value: Settings) => {
     const request = ++branchRequest.current;
     setBranches([]);
+    setBranchesError('');
+    setBranchesLoading(false);
     if (!value.repository_owner || !value.repository_name) return;
+    setBranchesLoading(true);
     try {
       const names = await native<string[]>('github_branches', { settings: value });
       if (mounted.current && request === branchRequest.current) setBranches(names);
     } catch (e) {
       if (mounted.current && request === branchRequest.current) {
-        setSuccess(false);
-        setMessage(errorMessage(e));
+        setBranchesError(errorMessage(e));
       }
+    } finally {
+      if (mounted.current && request === branchRequest.current) setBranchesLoading(false);
     }
   }, []);
   useEffect(() => {
@@ -379,7 +385,7 @@ export function SettingsDialog({ db, onClose }: { db: LocalDatabase; onClose: ()
                   aria-label="同期するブランチ"
                   value={form.branch_name}
                   onChange={(e) => setForm({ ...form, branch_name: e.target.value })}
-                  disabled={busy || !branches.length}
+                  disabled={busy || branchesLoading || !branches.length}
                 >
                   {!branches.includes(form.branch_name) && (
                     <option value={form.branch_name}>{form.branch_name}</option>
@@ -392,13 +398,45 @@ export function SettingsDialog({ db, onClose }: { db: LocalDatabase; onClose: ()
                 </select>
               </label>
             )}
+            {selected && (
+              <>
+                {branchesLoading ? (
+                  <p role="status" className="hint">
+                    ブランチを取得しています…
+                  </p>
+                ) : branchesError ? (
+                  <p role="alert" className="error">
+                    ブランチを取得できませんでした。{branchesError}
+                  </p>
+                ) : !branches.length ? (
+                  <p role="status" className="hint">
+                    ブランチがありません。空のリポジトリの場合は、GitHubでREADMEなどを作成して最初のコミットを保存し、「ブランチを再取得」を押してください。
+                  </p>
+                ) : !branches.includes(form.branch_name) ? (
+                  <p role="status" className="hint">
+                    一覧から接続するブランチを選択してください。
+                  </p>
+                ) : null}
+                <Button
+                  variant="ghost"
+                  disabled={busy || branchesLoading}
+                  onClick={() => {
+                    void loadBranches(form);
+                  }}
+                >
+                  ブランチを再取得
+                </Button>
+              </>
+            )}
             {connectionId(form) !== connectionId(settings) && settings.repository_owner && (
               <p className="hint">
                 現在のローカルメモも新しい接続先と統合されます。以前の接続先のSHAは再利用しません。
               </p>
             )}
             <Button
-              disabled={busy || !selected || !branches.includes(form.branch_name)}
+              disabled={
+                busy || branchesLoading || !selected || !branches.includes(form.branch_name)
+              }
               onClick={() => {
                 void save(true);
               }}

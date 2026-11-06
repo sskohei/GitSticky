@@ -400,13 +400,18 @@ p {
   background: var(--surface);
 }
 .editor {
-  height: min(760px, calc(100dvh - 64px));
+  width: calc(100% - 32px);
+  height: calc(100dvh - 16px);
+  max-height: calc(100dvh - 16px);
+}
+.editor > :not(.editor-body) {
+  flex-shrink: 0;
 }
 .editor-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 24px 0;
+  padding: 6px 24px 0;
 }
 .title-input {
   background: transparent !important;
@@ -414,11 +419,11 @@ p {
   border-radius: 0;
   font-size: 25px;
   font-weight: 600;
-  padding: 10px 28px 20px;
+  padding: 4px 28px 8px;
   color: inherit;
 }
 .editor-toolbar {
-  padding: 0 24px 18px;
+  padding: 0 24px 8px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -443,13 +448,91 @@ p {
 .editor-body {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
   background: var(--surface);
   color: var(--ink);
 }
+.editor-view-split {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.editor-viewbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 20px;
+  background: var(--surface);
+  color: var(--ink);
+  border-bottom: 1px solid var(--border);
+}
+.editor-modes {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 9px;
+  background: #82906a12;
+}
+.editor-modes .button {
+  font-size: 12px;
+  padding: 8px 12px;
+  min-height: 38px;
+}
+.editor-modes .button[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 4px #0002;
+}
+.editor-count {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.editor-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.editor-pane[hidden] {
+  display: none;
+}
+.editor-view-split .preview-pane {
+  border-left: 1px solid var(--border);
+}
+.editor-pane-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 24px;
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.editor-pane-heading > :first-child {
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+.editor-pane-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.source-pane .editor-pane-content > div {
+  height: 100%;
+}
 .cm-editor {
   font-size: 15px;
+  height: 100%;
   min-height: 100%;
+}
+.editor .cm-scroller {
+  overflow: auto;
 }
 .cm-content {
   padding: 24px !important;
@@ -463,7 +546,7 @@ p {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 24px;
+  padding: 6px 24px;
   background: var(--surface);
   border-top: 1px solid var(--border);
   color: var(--ink);
@@ -539,6 +622,9 @@ p {
 }
 .markdown table {
   border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
 }
 .markdown td,
 .markdown th {
@@ -746,6 +832,14 @@ p {
   background: #35422e;
   color: #b0c49d;
 }
+@media (min-width: 641px) {
+  .editor-top .button,
+  .editor-toolbar .button,
+  .editor-footer .button {
+    min-height: 32px;
+    padding: 6px 12px;
+  }
+}
 @media (min-width: 1450px) {
   .app-shell {
     max-width: 1450px;
@@ -847,7 +941,7 @@ p {
     padding: 10px 14px 0;
   }
   .editor-toolbar {
-    padding: 0 14px 15px;
+    padding: 0 14px 8px;
     flex-wrap: wrap;
   }
   .editor-toolbar .button {
@@ -883,6 +977,33 @@ p {
   }
   .settings-footer .button {
     width: 100%;
+  }
+}
+@media (max-width: 760px) {
+  .editor-view-split {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+  .editor-view-split .preview-pane {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .editor-viewbar {
+    padding: 5px 10px;
+    gap: 5px;
+  }
+  .editor-modes .button {
+    min-height: 44px;
+    padding: 8px;
+  }
+  .editor-pane-heading {
+    padding: 7px 16px;
+  }
+  .editor-pane-content.markdown {
+    padding: 16px 20px;
+  }
+  .editor .cm-content {
+    padding: 16px !important;
   }
 }
 @media (max-width: 340px) {

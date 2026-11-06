@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { Editor } from './Editor';
 import { MemoryDatabase } from '../../test/fakes';
@@ -108,8 +108,51 @@ describe('note editing', () => {
       body_md: '<script>alert(1)</script>\n\n[危険](javascript:alert(1))',
     };
     render(<Editor note={note} db={new MemoryDatabase()} onClose={() => {}} />);
-    fireEvent.click(screen.getByText('プレビュー'));
+    fireEvent.click(screen.getByRole('button', { name: 'プレビューのみ' }));
     expect(document.querySelector('script')).toBeNull();
     expect(document.querySelector('.markdown a')?.getAttribute('href')).not.toMatch(/^javascript:/);
+  });
+  it('shows a live GFM preview beside the editor before the autosave timer fires', () => {
+    render(<Editor note={newNote()} db={new MemoryDatabase()} onClose={() => {}} />);
+    const source = screen.getByLabelText('Markdown本文');
+    const preview = screen.getByRole('region', { name: 'Markdownプレビュー' });
+    expect(screen.getByRole('button', { name: '編集とプレビュー' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    fireEvent.change(source, {
+      target: {
+        value:
+          '# 同時プレビュー\n\n**日本語**\n\n- [x] 確認済み\n\n| A | B |\n| - | - |\n| 1 | 2 |',
+      },
+    });
+    expect(source).toBeVisible();
+    expect(within(preview).getByRole('heading', { name: '同時プレビュー' })).toBeVisible();
+    expect(within(preview).getByText('日本語').tagName).toBe('STRONG');
+    expect(within(preview).getByRole('checkbox')).toBeChecked();
+    expect(within(preview).getByRole('table')).toBeVisible();
+    fireEvent.change(source, { target: { value: '# 更新後' } });
+    expect(within(preview).queryByText('同時プレビュー')).not.toBeInTheDocument();
+    expect(within(preview).getByRole('heading', { name: '更新後' })).toBeVisible();
+  });
+  it('retains the editor instance and unsaved text while switching display modes', async () => {
+    const db = new MemoryDatabase();
+    const note = newNote();
+    await db.save(note);
+    render(<Editor note={note} db={db} onClose={() => {}} />);
+    const source = screen.getByLabelText('Markdown本文');
+    fireEvent.change(source, { target: { value: '# 保持する入力' } });
+    fireEvent.click(screen.getByRole('button', { name: 'プレビューのみ' }));
+    expect(source).not.toBeVisible();
+    expect(screen.getByRole('heading', { name: '保持する入力' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '編集のみ' }));
+    expect(screen.getByLabelText('Markdown本文')).toBe(source);
+    expect(source).toHaveValue('# 保持する入力');
+    expect(screen.queryByRole('region', { name: 'Markdownプレビュー' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '編集とプレビュー' }));
+    expect(source).toBeVisible();
+    expect(screen.getByRole('heading', { name: '保持する入力' })).toBeVisible();
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(db.data.notes[0].body_md).toBe('# 保持する入力');
   });
 });
