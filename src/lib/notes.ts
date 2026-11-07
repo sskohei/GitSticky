@@ -1,4 +1,5 @@
 import { type Note } from '../types';
+import { tagKey } from './tags';
 export function title(value: string) {
   return Array.from(value.trim() || '無題のメモ')
     .slice(0, 80)
@@ -12,6 +13,7 @@ export function newNote(): Note {
     body_md: '',
     color: 'yellow',
     pinned: false,
+    tags: [],
     created_at: now,
     updated_at: now,
     deleted_at: null,
@@ -19,10 +21,20 @@ export function newNote(): Note {
     dirty: true,
   };
 }
-export function selectNotes(notes: Note[], query: string) {
+export function selectNotes(
+  notes: Note[],
+  query: string,
+  filter: { tags?: string[]; untagged?: boolean } = {},
+) {
   const q = query.toLocaleLowerCase();
   return notes
-    .filter((n) => !n.deleted_at && (n.title + '\n' + n.body_md).toLocaleLowerCase().includes(q))
+    .filter(
+      (n) =>
+        !n.deleted_at &&
+        [n.title, n.body_md, ...n.tags].join('\n').toLocaleLowerCase().includes(q) &&
+        (!filter.untagged || !n.tags.length) &&
+        (filter.tags ?? []).every((tag) => n.tags.some((value) => tagKey(value) === tagKey(tag))),
+    )
     .sort(
       (a, b) =>
         Number(b.pinned) - Number(a.pinned) ||

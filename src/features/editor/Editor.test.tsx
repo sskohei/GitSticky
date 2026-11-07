@@ -3,13 +3,17 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { Editor } from './Editor';
 import { MemoryDatabase } from '../../test/fakes';
 import { newNote } from '../../lib/notes';
+import { useApp } from '../../stores/app';
 vi.mock('@uiw/react-codemirror', () => ({
   default: ({ value, onChange }: { value: string; onChange: (value: string) => void }) => (
     <textarea aria-label="Markdown本文" value={value} onChange={(e) => onChange(e.target.value)} />
   ),
 }));
 describe('note editing', () => {
-  beforeEach(() => vi.useFakeTimers());
+  beforeEach(() => {
+    vi.useFakeTimers();
+    useApp.setState({ notes: [] });
+  });
   afterEach(() => vi.useRealTimers());
   it('autosaves title, Japanese markdown, pin and color after 500ms', async () => {
     const db = new MemoryDatabase();
@@ -154,5 +158,51 @@ describe('note editing', () => {
     expect(screen.getByRole('heading', { name: '保持する入力' })).toBeVisible();
     await act(() => vi.advanceTimersByTimeAsync(500));
     expect(db.data.notes[0].body_md).toBe('# 保持する入力');
+  });
+  it('adds Japanese and existing tags, deduplicates them, and autosaves removal', async () => {
+    const db = new MemoryDatabase();
+    const note = { ...newNote(), body_md: '本文は保持' };
+    const existing = { ...newNote(), tags: ['アイデア'] };
+    await db.save(note);
+    await db.save(existing);
+    useApp.setState({ notes: [note, existing] });
+    render(<Editor note={note} db={db} onClose={() => {}} />);
+    expect(screen.queryByLabelText('追加するタグ')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'タグを編集' }));
+    fireEvent.change(screen.getByLabelText('追加するタグ'), { target: { value: ' 仕事 ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'タグを追加' }));
+    fireEvent.change(screen.getByLabelText('追加するタグ'), { target: { value: '仕事' } });
+    fireEvent.click(screen.getByRole('button', { name: 'タグを追加' }));
+    fireEvent.click(screen.getByRole('button', { name: 'タグ「アイデア」を追加' }));
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(db.data.notes.find((value) => value.id === note.id)?.tags).toEqual(['仕事', 'アイデア']);
+    fireEvent.click(screen.getByRole('button', { name: 'タグ「仕事」を外す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'タグ「アイデア」を外す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'タグ編集を閉じる' }));
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(db.data.notes.find((value) => value.id === note.id)).toMatchObject({
+      tags: [],
+      body_md: '本文は保持',
+    });
+    expect(screen.queryByLabelText('追加するタグ')).not.toBeInTheDocument();
+  });
+  it('reports invalid tags without changing saved data, and Escape closes only tag editing', async () => {
+    const db = new MemoryDatabase();
+    const note = { ...newNote(), tags: ['仕事'] };
+    await db.save(note);
+    const onClose = vi.fn();
+    render(<Editor note={note} db={db} onClose={onClose} />);
+    fireEvent.click(screen.getByRole('button', { name: 'タグを編集' }));
+    fireEvent.change(screen.getByLabelText('追加するタグ'), { target: { value: 'あ'.repeat(31) } });
+    fireEvent.click(screen.getByRole('button', { name: 'タグを追加' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('30文字');
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(db.data.notes[0].tags).toEqual(['仕事']);
+    // Radix listens at the document, before React's bubbling key handlers in the WebView.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByLabelText('追加するタグ')).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'メモを編集' })).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'タグを編集' })).toHaveFocus();
   });
 });

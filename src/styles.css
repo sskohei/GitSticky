@@ -433,6 +433,171 @@ p {
   display: flex;
   gap: 7px;
 }
+.editor-tools-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.editor-tag-controls {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.tag-trigger {
+  font-size: 12px;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 140px;
+  padding: 3px 8px;
+  border: 1px solid currentColor;
+  border-radius: 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tag-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tag-chip > button {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+}
+.tag-chip > button:hover {
+  background: #82906a25;
+}
+.tag-overflow {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.tag-editor-panel {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(360px, calc(100vw - 72px));
+  max-height: min(360px, 50dvh);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 8px 24px #0003;
+}
+.tag-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.editor .tag-editor-panel .button {
+  min-height: 32px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.tag-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tag-add-form {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0 6px;
+}
+.tag-add-form input {
+  min-width: 0;
+  padding: 8px;
+  font-size: 13px;
+}
+.tag-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+.tag-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #b4483c;
+}
+.tag-suggestions {
+  margin-top: 12px;
+}
+.tag-suggestions .tag-list {
+  margin-top: 6px;
+}
+.tag-suggestion {
+  background: transparent;
+  color: inherit;
+}
+.board-tag-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 3px 8px;
+  margin: -12px 0 18px;
+  overflow-x: auto;
+}
+.tag-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+}
+.tag-filter > span {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag-filter[aria-pressed='true'] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.tag-filter small {
+  color: var(--muted);
+}
+.tag-filter-description {
+  color: var(--muted);
+  font-size: 11px;
+  margin: -12px 0 18px;
+}
+.note-tags {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin: -6px 0 14px;
+}
+.note-tags .tag-chip {
+  max-width: 100%;
+}
 .swatch {
   height: 27px;
   width: 27px;
@@ -857,6 +1022,14 @@ p {
   }
 }
 @media (max-width: 640px) {
+  .tag-filter,
+  .editor .tag-editor-panel .button {
+    min-height: 44px;
+  }
+  .tag-chip > button {
+    min-height: 32px;
+    min-width: 32px;
+  }
   .app-shell {
     padding: 0 20px;
     padding-top: env(safe-area-inset-top);
@@ -980,6 +1153,13 @@ p {
   }
 }
 @media (max-width: 760px) {
+  .editor-tools-left {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .editor-tag-controls {
+    flex-basis: 100%;
+  }
   .editor-view-split {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: repeat(2, minmax(0, 1fr));

@@ -4,11 +4,13 @@ export function Modal({
   title,
   children,
   onClose,
+  onEscapeKeyDown,
   className = '',
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  onEscapeKeyDown?: (event: KeyboardEvent) => void;
   className?: string;
 }) {
   return (
@@ -20,7 +22,11 @@ export function Modal({
     >
       <Dialog.Portal>
         <Dialog.Overlay className="overlay" />
-        <Dialog.Content className={'modal ' + className} aria-describedby={undefined}>
+        <Dialog.Content
+          className={'modal ' + className}
+          aria-describedby={undefined}
+          onEscapeKeyDown={onEscapeKeyDown}
+        >
           <Dialog.Title className="sr-only">{title}</Dialog.Title>
           {children}
         </Dialog.Content>

@@ -20,6 +20,16 @@ fn validate(n: &Note) -> Result<()> {
         || n.title.trim().is_empty()
         || n.title.chars().count() > 80
         || !["yellow", "pink", "green", "blue", "purple", "gray"].contains(&n.color.as_str())
+        || n.tags.len() > 20
+        || n.tags.iter().enumerate().any(|(index, tag)| {
+            tag.is_empty()
+                || tag.trim() != tag
+                || tag.chars().count() > 30
+                || tag.chars().any(char::is_control)
+                || n.tags[..index]
+                    .iter()
+                    .any(|previous| previous.eq_ignore_ascii_case(tag))
+        })
     {
         return Err(AppError::new("validation", "メモの形式が不正です。"));
     }
@@ -27,8 +37,10 @@ fn validate(n: &Note) -> Result<()> {
 }
 async fn put(tx: &mut Transaction<'_, Sqlite>, n: &Note) -> Result<()> {
     validate(n)?;
-    sqlx::query("INSERT INTO notes VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,body_md=excluded.body_md,color=excluded.color,pinned=excluded.pinned,created_at=excluded.created_at,updated_at=excluded.updated_at,deleted_at=excluded.deleted_at,local_revision=excluded.local_revision,dirty=excluded.dirty")
- .bind(&n.id).bind(&n.title).bind(&n.body_md).bind(&n.color).bind(n.pinned).bind(&n.created_at).bind(&n.updated_at).bind(&n.deleted_at).bind(n.local_revision).bind(n.dirty).execute(&mut **tx).await?;
+    let tags = serde_json::to_string(&n.tags)
+        .map_err(|_| AppError::new("validation", "タグの形式が不正です。"))?;
+    sqlx::query("INSERT INTO notes (id,title,body_md,color,pinned,created_at,updated_at,deleted_at,local_revision,dirty,tags) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,body_md=excluded.body_md,color=excluded.color,pinned=excluded.pinned,created_at=excluded.created_at,updated_at=excluded.updated_at,deleted_at=excluded.deleted_at,local_revision=excluded.local_revision,dirty=excluded.dirty,tags=excluded.tags")
+ .bind(&n.id).bind(&n.title).bind(&n.body_md).bind(&n.color).bind(n.pinned).bind(&n.created_at).bind(&n.updated_at).bind(&n.deleted_at).bind(n.local_revision).bind(n.dirty).bind(tags).execute(&mut **tx).await?;
     Ok(())
 }
 async fn put_state(tx: &mut Transaction<'_, Sqlite>, s: &SyncState) -> Result<()> {

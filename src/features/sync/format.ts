@@ -1,5 +1,6 @@
 import { parseDocument, stringify } from 'yaml';
 import { AppError, colors, type Note } from '../../types';
+import { normalizeTags, tagKey } from '../../lib/tags';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function managedId(path: string) {
   const match = /^notes\/([^/]+)\.md$/.exec(path);
@@ -10,11 +11,13 @@ export function serialize(note: Note) {
     '---\n' +
     stringify(
       {
-        schemaVersion: 1,
+        // Older clients reject v2 instead of silently dropping tags on their next write.
+        schemaVersion: note.tags.length ? 2 : 1,
         id: note.id,
         title: note.title,
         color: note.color,
         pinned: note.pinned,
+        ...(note.tags.length ? { tags: normalizeTags(note.tags) } : {}),
         createdAt: note.created_at,
         updatedAt: note.updated_at,
       },
@@ -40,7 +43,8 @@ export function parse(content: string, id: string): Note {
     if (!m || typeof m !== 'object' || Array.isArray(m)) return fail();
     const v = m as Record<string, unknown>;
     if (
-      v.schemaVersion !== 1 ||
+      (v.schemaVersion !== 1 && v.schemaVersion !== 2) ||
+      (v.schemaVersion === 1 && v.tags !== undefined) ||
       v.id !== id ||
       !uuid.test(id) ||
       typeof v.title !== 'string' ||
@@ -60,6 +64,7 @@ export function parse(content: string, id: string): Note {
       body_md: match[2],
       color: v.color as Note['color'],
       pinned: v.pinned,
+      tags: v.schemaVersion === 2 ? normalizeTags(v.tags) : [],
       created_at: v.createdAt,
       updated_at: v.updatedAt,
       deleted_at: null,
@@ -76,6 +81,7 @@ export function same(a: Note, b: Note) {
     a.body_md === b.body_md &&
     a.color === b.color &&
     a.pinned === b.pinned &&
+    JSON.stringify(a.tags.map(tagKey).sort()) === JSON.stringify(b.tags.map(tagKey).sort()) &&
     a.created_at === b.created_at &&
     a.updated_at === b.updated_at &&
     !a.deleted_at &&

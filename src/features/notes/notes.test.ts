@@ -22,4 +22,21 @@ describe('local notes', () => {
     expect(title('  ')).toBe('無題のメモ');
     expect(Array.from(title('あ'.repeat(100)))).toHaveLength(80);
   });
+  it('requires every selected tag and combines tags with keyword search', () => {
+    const both = { ...newNote(), title: '企画', tags: ['仕事', 'アイデア'] };
+    const work = { ...newNote(), title: '企画', tags: ['仕事'] };
+    const idea = { ...newNote(), title: '趣味', tags: ['アイデア'] };
+    const untagged = { ...newNote(), title: '企画' };
+    const notes = [both, work, idea, untagged];
+    expect(selectNotes(notes, '', { tags: ['仕事', 'アイデア'] })).toEqual([both]);
+    expect(selectNotes(notes, '趣味', { tags: ['仕事', 'アイデア'] })).toEqual([]);
+    expect(
+      selectNotes(notes, '仕事')
+        .map((note) => note.id)
+        .sort(),
+    ).toEqual([both.id, work.id].sort());
+    expect(selectNotes(notes, '', { untagged: true })).toEqual([untagged]);
+    expect(selectNotes([{ ...both, tags: ['Work'] }], '', { tags: ['work'] })).toHaveLength(1);
+    expect(selectNotes([{ ...both, deleted_at: 'today' }], '', { tags: ['仕事'] })).toEqual([]);
+  });
 });
