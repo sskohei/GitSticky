@@ -6,6 +6,9 @@ pub struct Note {
     pub body_md: String,
     pub color: String,
     pub pinned: bool,
+    #[serde(default)]
+    #[sqlx(json)]
+    pub tags: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,

@@ -13,6 +13,10 @@ async fn database() -> SqlitePool {
         .execute(&p)
         .await
         .unwrap();
+    sqlx::raw_sql(include_str!("../migrations/002_note_tags.sql"))
+        .execute(&p)
+        .await
+        .unwrap();
     p
 }
 fn note() -> Note {
@@ -22,6 +26,7 @@ fn note() -> Note {
         body_md: "本文\n次の行".into(),
         color: "yellow".into(),
         pinned: false,
+        tags: vec!["仕事".into(), "アイデア".into()],
         created_at: "2026-11-04T00:00:00Z".into(),
         updated_at: "2026-11-04T00:00:00Z".into(),
         deleted_at: None,
@@ -125,6 +130,10 @@ async fn reopening_sqlite_preserves_japanese_markdown() {
         .execute(&p)
         .await
         .unwrap();
+    sqlx::raw_sql(include_str!("../migrations/002_note_tags.sql"))
+        .execute(&p)
+        .await
+        .unwrap();
     let n = note();
     apply(&p, &n.id, None, Some(n.clone()), None, None)
         .await
@@ -141,6 +150,97 @@ async fn reopening_sqlite_preserves_japanese_markdown() {
         .unwrap();
     assert_eq!(saved.body_md, n.body_md);
     assert_eq!(saved.title, n.title);
+    assert_eq!(saved.tags, n.tags);
     reopened.close().await;
     std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
+async fn tag_migration_preserves_existing_notes_without_tags() {
+    let p = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::raw_sql(include_str!("../migrations/001_initial.sql"))
+        .execute(&p)
+        .await
+        .unwrap();
+    let n = note();
+    sqlx::query("INSERT INTO notes VALUES(?,?,?,?,?,?,?,?,?,?)")
+        .bind(&n.id)
+        .bind(&n.title)
+        .bind(&n.body_md)
+        .bind(&n.color)
+        .bind(n.pinned)
+        .bind(&n.created_at)
+        .bind(&n.updated_at)
+        .bind(&n.deleted_at)
+        .bind(n.local_revision)
+        .bind(n.dirty)
+        .execute(&p)
+        .await
+        .unwrap();
+    sqlx::raw_sql(include_str!("../migrations/002_note_tags.sql"))
+        .execute(&p)
+        .await
+        .unwrap();
+    let saved: Note = sqlx::query_as("SELECT * FROM notes")
+        .fetch_one(&p)
+        .await
+        .unwrap();
+    assert!(saved.tags.is_empty());
+    assert_eq!(saved.body_md, n.body_md);
+    assert_eq!(saved.local_revision, n.local_revision);
+    assert_eq!(saved.dirty, n.dirty);
+    let mut tagged = saved;
+    tagged.tags = n.tags;
+    tagged.local_revision += 1;
+    assert!(apply(
+        &p,
+        &n.id,
+        Some(n.local_revision),
+        Some(tagged.clone()),
+        None,
+        None
+    )
+    .await
+    .unwrap());
+    let saved: Note = sqlx::query_as("SELECT * FROM notes")
+        .fetch_one(&p)
+        .await
+        .unwrap();
+    assert_eq!(saved.tags, tagged.tags);
+}
+
+#[tokio::test]
+async fn invalid_tags_are_rejected_without_overwriting_saved_notes() {
+    let p = database().await;
+    let n = note();
+    apply(&p, &n.id, None, Some(n.clone()), None, None)
+        .await
+        .unwrap();
+    for tags in [
+        vec!["".into()],
+        vec![" 仕事".into()],
+        vec!["あ".repeat(31)],
+        vec!["改行\n禁止".into()],
+        vec!["Work".into(), "work".into()],
+        (0..21).map(|index| format!("tag{index}")).collect(),
+    ] {
+        let mut invalid = n.clone();
+        invalid.tags = tags;
+        invalid.body_md = "上書きしない".into();
+        assert!(
+            apply(&p, &n.id, Some(n.local_revision), Some(invalid), None, None)
+                .await
+                .is_err()
+        );
+        let saved: Note = sqlx::query_as("SELECT * FROM notes")
+            .fetch_one(&p)
+            .await
+            .unwrap();
+        assert_eq!(saved.tags, n.tags);
+        assert_eq!(saved.body_md, n.body_md);
+    }
 }

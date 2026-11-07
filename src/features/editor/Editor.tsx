@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import { X, Pin, Trash2, Eye, Pencil, Columns2, Check, Loader2 } from 'lucide-react';
 import { Modal } from '../../components/Modal';
 import { Button } from '../../components/ui/button';
+import { TagEditor } from './TagEditor';
 import type { LocalDatabase } from '../../db';
 import { title } from '../../lib/notes';
 import { useApp } from '../../stores/app';
@@ -29,6 +30,7 @@ export const Editor = forwardRef<
   const [error, setError] = useState('');
   const [view, setView] = useState<'edit' | 'split' | 'preview'>('split');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [tagsOpen, setTagsOpen] = useState(false);
   const [closing, setClosing] = useState(false);
   const flush = useCallback(async () => {
     if (timer.current) clearTimeout(timer.current);
@@ -139,6 +141,12 @@ export const Editor = forwardRef<
   return (
     <Modal
       title="メモを編集"
+      onEscapeKeyDown={(event) => {
+        if (tagsOpen) {
+          event.preventDefault();
+          setTagsOpen(false);
+        }
+      }}
       onClose={() => {
         void close();
       }}
@@ -165,18 +173,26 @@ export const Editor = forwardRef<
         onChange={(e) => update({ title: e.target.value })}
       />
       <div className="editor-toolbar">
-        <div className="colors" aria-label="付箋の色">
-          {colors.map((c) => (
-            <button
-              key={c}
-              className={'swatch note-' + c}
-              aria-label={c}
-              aria-pressed={draft.color === c}
-              onClick={() => update({ color: c })}
-            >
-              {draft.color === c && <Check size={15} />}
-            </button>
-          ))}
+        <div className="editor-tools-left">
+          <div className="colors" aria-label="付箋の色">
+            {colors.map((c) => (
+              <button
+                key={c}
+                className={'swatch note-' + c}
+                aria-label={c}
+                aria-pressed={draft.color === c}
+                onClick={() => update({ color: c })}
+              >
+                {draft.color === c && <Check size={15} />}
+              </button>
+            ))}
+          </div>
+          <TagEditor
+            tags={draft.tags}
+            onChange={(tags) => update({ tags })}
+            open={tagsOpen}
+            onOpenChange={setTagsOpen}
+          />
         </div>
         <div className="row">
           <Button

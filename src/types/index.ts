@@ -6,6 +6,7 @@ export interface Note {
   body_md: string;
   color: Color;
   pinned: boolean;
+  tags: string[];
   created_at: string;
   updated_at: string;
   deleted_at: string | null;

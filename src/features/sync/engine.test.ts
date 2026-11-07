@@ -205,4 +205,35 @@ describe('safe bidirectional sync', () => {
     expect(parse(serialize(n), n.id).body_md).toBe(n.body_md);
     expect(parse(serialize(n), n.id).title).toBe(n.title);
   });
+  it('syncs tag-only additions and removals to another device without altering the body', async () => {
+    const n = local();
+    await db.save(n);
+    await run();
+    await db.save({ ...db.data.notes[0], tags: ['仕事', 'アイデア'] });
+    await run();
+    expect(parse(gh.files.get(n.id)!.content, n.id).tags).toEqual(['仕事', 'アイデア']);
+    const other = new MemoryDatabase();
+    const otherEngine = new SyncEngine(other, gh);
+    await otherEngine.run(other.data.settings);
+    expect(other.data.notes[0]).toMatchObject({ tags: ['仕事', 'アイデア'], body_md: n.body_md });
+    await db.save({ ...db.data.notes[0], tags: [] });
+    await run();
+    await otherEngine.run(other.data.settings);
+    expect(other.data.notes[0]).toMatchObject({ tags: [], body_md: n.body_md });
+  });
+  it('preserves both tag sets in a concurrent tag-only conflict', async () => {
+    const n = local();
+    await db.save(n);
+    await run();
+    await db.save({ ...db.data.notes[0], tags: ['仕事'] });
+    gh.set({ ...n, tags: ['個人'] });
+    expect((await run()).conflicts).toBe(1);
+    expect(db.data.notes.find((note) => note.id === n.id)?.tags).toEqual(['個人']);
+    expect(db.data.notes.find((note) => note.id !== n.id)?.tags).toEqual(['仕事']);
+    await run();
+    expect(gh.files.size).toBe(2);
+    expect([...gh.files].map(([id, file]) => parse(file.content, id).tags[0]).sort()).toEqual(
+      ['仕事', '個人'].sort(),
+    );
+  });
 });
