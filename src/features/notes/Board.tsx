@@ -2,23 +2,26 @@ import { Pin, Plus, StickyNote } from 'lucide-react';
 import { useState } from 'react';
 import type { Note } from '../../types';
 import { selectNotes } from '../../lib/notes';
-import { availableTags, tagKey } from '../../lib/tags';
+import { availableTags, MAX_NOTE_TAGS, tagKey } from '../../lib/tags';
 export function Board({
   notes,
   query,
   onOpen,
   onCreate,
+  creating = false,
 }: {
   notes: Note[];
   query: string;
   onOpen: (note: Note) => void;
-  onCreate: () => void;
+  onCreate: (tags: string[]) => void;
+  creating?: boolean;
 }) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [untagged, setUntagged] = useState(false);
   const filtered = selectedTags.length > 0 || untagged;
   const visible = selectNotes(notes, query, { tags: selectedTags, untagged });
   const tags = availableTags(notes);
+  const tooManyTags = selectedTags.length > MAX_NOTE_TAGS;
   // Keep a selected filter removable even if its last note is edited or deleted.
   const choices = [
     ...tags,
@@ -73,6 +76,11 @@ export function Board({
       {selectedTags.length > 1 && (
         <p className="tag-filter-description">選択したタグがすべて付いたメモを表示しています。</p>
       )}
+      {tooManyTags && (
+        <p className="tag-filter-description" id="create-tag-limit">
+          メモを作成するには、選択するタグを{MAX_NOTE_TAGS}個以下にしてください。
+        </p>
+      )}
       <div className="board-label">
         <span>
           {query || filtered ? '検索結果' : 'すべてのメモ'} <b>{visible.length}</b>
@@ -112,14 +120,23 @@ export function Board({
             </footer>
           </button>
         ))}
-        {!query && !filtered && (
-          <button className="new-card" onClick={onCreate}>
-            <span className="plus-circle">
-              <Plus size={25} />
-            </span>
-            <span>新しいメモ</span>
-          </button>
-        )}
+        <button
+          className="new-card"
+          disabled={creating || tooManyTags}
+          aria-describedby={tooManyTags ? 'create-tag-limit' : undefined}
+          onClick={() => onCreate([...selectedTags])}
+        >
+          <span className="plus-circle">
+            <Plus size={25} />
+          </span>
+          <span>
+            {selectedTags.length === 0
+              ? '新しいメモ'
+              : selectedTags.length === 1
+                ? 'このタグで新しいメモ'
+                : '選択中のタグで新しいメモ'}
+          </span>
+        </button>
       </div>
       {!visible.length && (
         <div className="empty">

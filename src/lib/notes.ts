@@ -1,11 +1,11 @@
 import { type Note } from '../types';
-import { tagKey } from './tags';
+import { normalizeTags, tagKey } from './tags';
 export function title(value: string) {
   return Array.from(value.trim() || '無題のメモ')
     .slice(0, 80)
     .join('');
 }
-export function newNote(): Note {
+export function newNote(tags: string[] = []): Note {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
@@ -13,7 +13,7 @@ export function newNote(): Note {
     body_md: '',
     color: 'yellow',
     pinned: false,
-    tags: [],
+    tags: normalizeTags(tags),
     created_at: now,
     updated_at: now,
     deleted_at: null,
