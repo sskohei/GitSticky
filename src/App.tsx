@@ -72,11 +72,11 @@ export function App({ db }: { db: LocalDatabase }) {
       unlisten?.();
     };
   }, [flush]);
-  const create = async () => {
+  const create = async (tags: string[] = []) => {
     if (creating) return;
     setCreating(true);
     try {
-      const n = newNote();
+      const n = newNote(tags);
       await db.save(n);
       await refresh(db);
       setEditor(n);
@@ -185,8 +185,9 @@ export function App({ db }: { db: LocalDatabase }) {
             notes={notes}
             query={query}
             onOpen={setEditor}
-            onCreate={() => {
-              void create();
+            creating={creating}
+            onCreate={(tags) => {
+              void create(tags);
             }}
           />
         ) : (
