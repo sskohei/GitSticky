@@ -2,6 +2,8 @@
 
 Reactは表示・ローカル操作の要求・同期のオーケストレーションを担当し、RustはSQLiteトランザクション・GitHub通信・秘密情報の管理を担当する。UIからGitHubへ直接通信しない。
 
+同期の整合性は `repository.rs`（Git Database APIによる単一commit更新）と `sync_security.rs`（暗号化一覧・確認済み世代の検証）が担当する。`crypto.rs` は移行完了状態・確認済み世代・交換中の鍵をOS保護領域で永続化する。`backups.rs` はリモート反映前の暗号化コピーの保存と新しいメモとしての復元を担当する。独自IPCはbuild.rsのAppManifestに登録し、permissions/main.tomlとmain capabilityで許可する。
+
 | 領域                             | 責務                                                 |
 | -------------------------------- | ---------------------------------------------------- |
 | components                       | Radix Dialog、shadcn形式のButton、共通UI             |

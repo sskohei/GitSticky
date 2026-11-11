@@ -96,6 +96,10 @@ pub fn connection(settings: &Settings) -> String {
 struct SyncKeyRecord {
     key: String,
     legacy_allowed: bool,
+    #[serde(default)]
+    pending_key: Option<String>,
+    #[serde(default)]
+    checkpoint: Option<crate::sync_security::Checkpoint>,
 }
 #[derive(Default, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -103,12 +107,14 @@ struct KeyMap(BTreeMap<String, SyncKeyRecord>);
 pub struct SyncKeys {
     store: Arc<dyn SecretStore>,
     lock: Mutex<()>,
+    pub operation: Mutex<()>,
 }
 impl SyncKeys {
     pub fn new(store: Arc<dyn SecretStore>) -> Self {
         Self {
             store,
             lock: Mutex::new(()),
+            operation: Mutex::new(()),
         }
     }
     fn load(&self) -> Result<KeyMap> {
@@ -126,6 +132,12 @@ impl SyncKeys {
                 "設定画面で、この同期先の暗号鍵を登録してください。他の端末と同じ鍵が必要です。",
             )
         })?;
+        if key.pending_key.is_some() {
+            return Err(AppError::new(
+                "locked",
+                "鍵の交換が中断されています。設定から交換を再開してください。",
+            ));
+        }
         NoteCipher::from_encoded(&key.key)
     }
     pub async fn decrypt(
@@ -155,7 +167,7 @@ impl SyncKeys {
         let raw = Zeroizing::new(serde_json::to_vec(&keys).map_err(|_| error())?);
         self.store.save(&raw)
     }
-    async fn legacy_allowed(&self, settings: &Settings) -> Result<bool> {
+    pub async fn legacy_allowed(&self, settings: &Settings) -> Result<bool> {
         let _guard = self.lock.lock().await;
         let keys = self.load()?;
         Ok(keys
@@ -182,9 +194,13 @@ impl SyncKeys {
         let cid = connection(settings);
         let encoded = key.encoded();
         match keys.0.get_mut(&cid) {
-            Some(record) if record.key == encoded.as_str() => {
-                // Re-registering the same key must never reopen a completed migration.
+            Some(record) => {
+                if record.pending_key.is_some() {
+                    return Err(error());
+                }
+                // Completion belongs to the connection, not to a particular key.
                 record.legacy_allowed &= legacy_allowed;
+                record.key = encoded.to_string();
             }
             _ => {
                 keys.0.insert(
@@ -192,6 +208,8 @@ impl SyncKeys {
                     SyncKeyRecord {
                         key: encoded.to_string(),
                         legacy_allowed,
+                        pending_key: None,
+                        checkpoint: None,
                     },
                 );
             }
@@ -199,10 +217,93 @@ impl SyncKeys {
         let raw = Zeroizing::new(serde_json::to_vec(&keys).map_err(|_| error())?);
         self.store.save(&raw)
     }
+
+    pub async fn checkpoint(
+        &self,
+        settings: &Settings,
+    ) -> Result<Option<crate::sync_security::Checkpoint>> {
+        let _guard = self.lock.lock().await;
+        Ok(self
+            .load()?
+            .0
+            .get(&connection(settings))
+            .ok_or_else(error)?
+            .checkpoint
+            .clone())
+    }
+    pub async fn observe(
+        &self,
+        settings: &Settings,
+        checkpoint: crate::sync_security::Checkpoint,
+    ) -> Result<()> {
+        let _guard = self.lock.lock().await;
+        let mut map = self.load()?;
+        let record = map.0.get_mut(&connection(settings)).ok_or_else(error)?;
+        crate::sync_security::verify_checkpoint(record.checkpoint.as_ref(), Some(&checkpoint))?;
+        if record.checkpoint.as_ref().is_some_and(|known| {
+            known.generation == checkpoint.generation && known.sha == checkpoint.sha
+        }) {
+            return Ok(());
+        }
+        record.checkpoint = Some(checkpoint);
+        self.store.save(&Zeroizing::new(
+            serde_json::to_vec(&map).map_err(|_| error())?,
+        ))
+    }
+    pub async fn rotation_keys(
+        &self,
+        settings: &Settings,
+    ) -> Result<(NoteCipher, Option<NoteCipher>)> {
+        let _guard = self.lock.lock().await;
+        let map = self.load()?;
+        let record = map.0.get(&connection(settings)).ok_or_else(error)?;
+        Ok((
+            NoteCipher::from_encoded(&record.key)?,
+            record
+                .pending_key
+                .as_deref()
+                .map(NoteCipher::from_encoded)
+                .transpose()?,
+        ))
+    }
+    pub async fn begin_rotation(&self, settings: &Settings, candidate: &NoteCipher) -> Result<()> {
+        let _guard = self.lock.lock().await;
+        let mut map = self.load()?;
+        let record = map.0.get_mut(&connection(settings)).ok_or_else(error)?;
+        let encoded = candidate.encoded();
+        if record.key == encoded.as_str()
+            || record
+                .pending_key
+                .as_ref()
+                .is_some_and(|key| key != encoded.as_str())
+        {
+            return Err(AppError::new(
+                "validation",
+                "別の新しい鍵を指定してください。交換中は同じ鍵で再開してください。",
+            ));
+        }
+        record.pending_key = Some(encoded.to_string());
+        self.store.save(&Zeroizing::new(
+            serde_json::to_vec(&map).map_err(|_| error())?,
+        ))
+    }
+    pub async fn complete_rotation(&self, settings: &Settings) -> Result<()> {
+        let _guard = self.lock.lock().await;
+        let mut map = self.load()?;
+        let record = map.0.get_mut(&connection(settings)).ok_or_else(error)?;
+        let new_key = record.pending_key.take().ok_or_else(error)?;
+        record.key.zeroize();
+        record.key = new_key;
+        record.legacy_allowed = false;
+        self.store.save(&Zeroizing::new(
+            serde_json::to_vec(&map).map_err(|_| error())?,
+        ))
+    }
 }
 #[derive(Serialize)]
 pub struct SecurityStatus {
     sync_ready: bool,
+    rotation_pending: bool,
 }
 #[tauri::command]
 pub async fn security_status(
@@ -211,14 +312,19 @@ pub async fn security_status(
 ) -> Result<SecurityStatus> {
     let _guard = keys.lock.lock().await;
     let map = keys.load()?;
-    let sync_ready = match map.0.get(&connection(&settings)) {
+    let record = map.0.get(&connection(&settings));
+    let rotation_pending = record.is_some_and(|key| key.pending_key.is_some());
+    let sync_ready = match record {
         Some(key) => {
             NoteCipher::from_encoded(&key.key)?;
-            true
+            !rotation_pending
         }
         None => false,
     };
-    Ok(SecurityStatus { sync_ready })
+    Ok(SecurityStatus {
+        sync_ready,
+        rotation_pending,
+    })
 }
 #[tauri::command]
 pub fn security_generate_key() -> String {
@@ -231,11 +337,43 @@ pub async fn security_set_sync_key(
     keys: State<'_, SyncKeys>,
     credentials: State<'_, crate::auth::Credentials>,
 ) -> Result<()> {
+    register_sync_key(&settings, key, &keys, &credentials).await
+}
+pub async fn register_sync_key(
+    settings: &Settings,
+    key: String,
+    keys: &SyncKeys,
+    credentials: &crate::auth::Credentials,
+) -> Result<()> {
+    let _operation = keys.operation.lock().await;
     let key = Zeroizing::new(key);
     let candidate = NoteCipher::from_encoded(&key)?;
+    let completed = keys.legacy_allowed(settings).await.map(|allowed| !allowed);
+    // Storage errors must not be mistaken for an unregistered connection.
+    let known = {
+        let _guard = keys.lock.lock().await;
+        keys.load()?.0.contains_key(&connection(settings))
+    };
+    let require_encrypted = if known { completed? } else { false };
     let legacy_allowed =
-        crate::github::validate_sync_key(&settings, &candidate, &credentials, false).await?;
-    keys.save(&settings, key, legacy_allowed).await
+        crate::github::validate_sync_key(settings, &candidate, credentials, require_encrypted)
+            .await?;
+    let checkpoint = crate::repository::validate_candidate(
+        settings,
+        &candidate,
+        credentials,
+        if known {
+            keys.checkpoint(settings).await?
+        } else {
+            None
+        },
+    )
+    .await?;
+    keys.save(settings, key, legacy_allowed).await?;
+    if let Some(checkpoint) = checkpoint {
+        keys.observe(settings, checkpoint).await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -244,10 +382,18 @@ pub async fn security_finish_migration(
     keys: State<'_, SyncKeys>,
     credentials: State<'_, crate::auth::Credentials>,
 ) -> Result<()> {
+    let _operation = keys.operation.lock().await;
     if !keys.legacy_allowed(&settings).await? {
         return Ok(());
     }
     let key = keys.key(&settings).await?;
+    crate::repository::validate_candidate(
+        &settings,
+        &key,
+        &credentials,
+        keys.checkpoint(&settings).await?,
+    )
+    .await?;
     crate::github::validate_sync_key(&settings, &key, &credentials, true).await?;
     keys.finish_migration(&settings).await
 }
@@ -260,7 +406,7 @@ struct Envelope {
     format: String,
     data: String,
 }
-fn sync_context(settings: &Settings, id: &str) -> String {
+pub fn sync_context(settings: &Settings, id: &str) -> String {
     format!("GitSticky:sync:v1:{}:{id}", connection(settings))
 }
 pub fn encrypt_sync(
@@ -364,11 +510,83 @@ mod tests {
             .is_err());
         restored.save(&settings, key.encoded(), true).await.unwrap();
         assert!(!restored.legacy_allowed(&settings).await.unwrap());
+        let checkpoint = crate::sync_security::Checkpoint {
+            generation: 7,
+            sha: "a".repeat(40),
+        };
+        restored.observe(&settings, checkpoint).await.unwrap();
+        restored
+            .save(&settings, NoteCipher::random().encoded(), true)
+            .await
+            .unwrap();
+        assert!(!restored.legacy_allowed(&settings).await.unwrap());
+        assert_eq!(
+            restored
+                .checkpoint(&settings)
+                .await
+                .unwrap()
+                .unwrap()
+                .generation,
+            7
+        );
+        assert!(restored
+            .decrypt(&settings, "id", "---\nlegacy")
+            .await
+            .is_err());
         let other = Settings {
             repository_name: "other".into(),
             ..settings
         };
         assert!(restored.key(&other).await.is_err());
+    }
+    #[tokio::test]
+    async fn interrupted_rotation_preserves_both_keys_and_storage_failures_are_retryable() {
+        let store = Arc::new(Store::default());
+        let keys = SyncKeys::new(store.clone());
+        let settings = Settings {
+            repository_owner: "owner".into(),
+            repository_name: "notes".into(),
+            ..Default::default()
+        };
+        let old = NoteCipher::random();
+        let next = NoteCipher::random();
+        keys.save(&settings, old.encoded(), false).await.unwrap();
+        store.fail.store(true, Ordering::SeqCst);
+        assert!(keys.begin_rotation(&settings, &next).await.is_err());
+        assert!(keys.key(&settings).await.is_ok());
+        store.fail.store(false, Ordering::SeqCst);
+        keys.begin_rotation(&settings, &next).await.unwrap();
+        let restarted = SyncKeys::new(store.clone());
+        assert!(restarted.key(&settings).await.is_err());
+        let (loaded_old, loaded_next) = restarted.rotation_keys(&settings).await.unwrap();
+        assert_eq!(loaded_old.encoded().as_str(), old.encoded().as_str());
+        assert_eq!(
+            loaded_next.unwrap().encoded().as_str(),
+            next.encoded().as_str()
+        );
+        assert!(restarted
+            .save(&settings, old.encoded(), false)
+            .await
+            .is_err());
+        assert!(restarted
+            .begin_rotation(&settings, &NoteCipher::random())
+            .await
+            .is_err());
+        store.fail.store(true, Ordering::SeqCst);
+        assert!(restarted.complete_rotation(&settings).await.is_err());
+        assert!(restarted.key(&settings).await.is_err());
+        store.fail.store(false, Ordering::SeqCst);
+        restarted.complete_rotation(&settings).await.unwrap();
+        assert_eq!(
+            restarted.key(&settings).await.unwrap().encoded().as_str(),
+            next.encoded().as_str()
+        );
+        assert!(restarted
+            .rotation_keys(&settings)
+            .await
+            .unwrap()
+            .1
+            .is_none());
     }
     #[test]
     fn authenticated_encryption_rejects_tampering_wrong_key_and_swapped_note() {
@@ -410,11 +628,10 @@ mod tests {
             ..settings.clone()
         };
         assert!(decrypt_sync(&device, &other, "note-1", &encrypted).is_err());
-        assert_eq!(
-            decrypt_sync(&device, &settings, "note-1", content)
+        assert!(
+            !decrypt_sync(&device, &settings, "note-1", content)
                 .unwrap()
-                .1,
-            false
+                .1
         );
         assert!(decrypt_sync(&device, &settings, "note-1", "{broken").is_err());
     }

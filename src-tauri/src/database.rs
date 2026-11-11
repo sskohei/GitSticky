@@ -56,6 +56,9 @@ fn error() -> AppError {
 pub async fn initialize(pool: &SqlitePool, store: &dyn SecretStore) -> Result<NoteCipher> {
     // Recognize existing Tauri SQL databases by schema, preserving its migration ledger.
     let mut tx = pool.begin().await?;
+    sqlx::query(crate::backups::SCHEMA)
+        .execute(&mut *tx)
+        .await?;
     let exists: (i64,) =
         sqlx::query_as("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='notes'")
             .fetch_one(&mut *tx)

@@ -160,6 +160,8 @@ pub async fn apply(
     if current.map(|r| r.0) != revision {
         return Ok(false);
     }
+    // The recovery copy and the remote update/deletion commit or roll back together.
+    crate::backups::archive(&mut tx, id, cipher).await?;
     if let Some(c) = copy {
         put(&mut tx, &c, cipher).await?;
     }

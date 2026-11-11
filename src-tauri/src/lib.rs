@@ -1,4 +1,5 @@
 mod auth;
+mod backups;
 mod commands;
 mod crypto;
 mod database;
@@ -7,8 +8,12 @@ mod github;
 mod legacy;
 mod models;
 mod oauth;
+mod repository;
 mod secure_store;
+mod sync_security;
 use tauri::Manager;
+#[cfg(test)]
+mod acl_tests;
 #[cfg(test)]
 mod tests;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -50,6 +55,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            backups::db_backups,
+            backups::db_restore_backup,
+            repository::security_rotate_sync_key,
             crypto::security_status,
             crypto::security_finish_migration,
             crypto::security_generate_key,

@@ -1,13 +1,15 @@
 use crate::{
     auth::Credentials,
-    crypto::{decrypt_sync, encrypt_sync, SyncKeys},
+    crypto::{decrypt_sync, SyncKeys},
     errors::{AppError, Result},
     models::Settings,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::{Client, Method, Response, StatusCode, Url};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde::Serialize;
+#[cfg(test)]
+use serde_json::json;
+use serde_json::Value;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::State;
 fn client() -> Result<Client> {
@@ -19,7 +21,7 @@ fn client() -> Result<Client> {
         .build()
         .map_err(|_| AppError::new("network", "通信を準備できません。"))
 }
-fn url(settings: &Settings, parts: &[&str]) -> Result<Url> {
+pub(crate) fn url(settings: &Settings, parts: &[&str]) -> Result<Url> {
     if settings.repository_owner.is_empty()
         || settings.repository_name.is_empty()
         || settings.branch_name.is_empty()
@@ -101,13 +103,24 @@ fn status_error(
     };
     AppError::new(code, msg)
 }
-async fn request(
+pub(crate) async fn request(
     credentials: &Credentials,
     method: Method,
     url: Url,
     body: Option<Value>,
     missing: &'static str,
 ) -> Result<Response> {
+    #[cfg(test)]
+    let url = if let Some(base) = &credentials.api_base {
+        base.join(url.path().trim_start_matches('/'))
+            .map(|mut target| {
+                target.set_query(url.query());
+                target
+            })
+            .map_err(|_| AppError::new("network", "Invalid test URL"))?
+    } else {
+        url
+    };
     let mut token = credentials.access_token(None).await?;
     let mut refreshed = false;
     let c = client()?;
@@ -175,7 +188,7 @@ async fn bounded_bytes(mut response: Response) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
-async fn value(r: Response) -> Result<Value> {
+pub(crate) async fn value(r: Response) -> Result<Value> {
     serde_json::from_slice(&bounded_bytes(r).await?)
         .map_err(|_| AppError::new("network", "GitHubの応答を読み取れません。"))
 }
@@ -188,7 +201,10 @@ fn require_private(repo: &Value) -> Result<()> {
     }
     Ok(())
 }
-async fn private_repository(settings: &Settings, credentials: &Credentials) -> Result<Value> {
+pub(crate) async fn private_repository(
+    settings: &Settings,
+    credentials: &Credentials,
+) -> Result<Value> {
     let repo = value(
         request(
             credentials,
@@ -224,20 +240,8 @@ pub async fn github_test(settings: Settings, credentials: State<'_, Credentials>
 }
 #[derive(Serialize)]
 pub struct RemoteFile {
-    id: String,
-    sha: String,
-}
-#[derive(Deserialize)]
-struct Tree {
-    tree: Vec<Entry>,
-    truncated: bool,
-}
-#[derive(Deserialize)]
-struct Entry {
-    path: String,
-    sha: String,
-    #[serde(rename = "type")]
-    kind: String,
+    pub id: String,
+    pub sha: String,
 }
 #[tauri::command]
 pub async fn github_list(
@@ -245,49 +249,18 @@ pub async fn github_list(
     credentials: State<'_, Credentials>,
     keys: State<'_, SyncKeys>,
 ) -> Result<Vec<RemoteFile>> {
-    private_repository(&settings, &credentials).await?;
-    keys.key(&settings).await?;
-    list_files(&settings, &credentials).await
+    crate::repository::list(&settings, &credentials, &keys).await
 }
 async fn list_files(settings: &Settings, credentials: &Credentials) -> Result<Vec<RemoteFile>> {
-    let branch = value(
-        request(
-            credentials,
-            Method::GET,
-            url(settings, &["branches", &settings.branch_name])?,
-            None,
-            "branch",
-        )
-        .await?,
-    )
-    .await?;
-    let sha = branch
-        .pointer("/commit/commit/tree/sha")
-        .and_then(Value::as_str)
-        .ok_or_else(|| AppError::new("network", "ブランチの応答が不正です。"))?;
-    let mut u = url(settings, &["git", "trees", sha])?;
-    u.query_pairs_mut().append_pair("recursive", "1");
-    let r = request(credentials, Method::GET, u, None, "repository").await?;
-    let tree: Tree = serde_json::from_slice(&bounded_bytes(r).await?)
-        .map_err(|_| AppError::new("network", "ファイル一覧を取得できません。"))?;
-    if tree.truncated {
-        return Err(AppError::new(
-            "network",
-            "GitHubのファイル一覧が不完全です。安全のため同期を中断しました。",
-        ));
-    }
-    Ok(tree
-        .tree
+    Ok(crate::repository::raw_snapshot(settings, credentials)
+        .await?
+        .files
         .into_iter()
-        .filter_map(|e| {
-            managed_id(&e.path)
-                .filter(|_| e.kind == "blob")
-                .map(|id| RemoteFile { id, sha: e.sha })
-        })
+        .map(|(id, sha)| RemoteFile { id, sha })
         .collect())
 }
 
-fn managed_id(path: &str) -> Option<String> {
+pub(crate) fn managed_id(path: &str) -> Option<String> {
     let id = path.strip_prefix("notes/")?.strip_suffix(".md")?;
     if id.len() != 36 || uuid::Uuid::parse_str(id).is_err() {
         return None;
@@ -303,11 +276,14 @@ pub async fn github_read(
     keys: State<'_, SyncKeys>,
 ) -> Result<ReadNote> {
     note_url(&settings, &id)?;
-    let content = read_blob(&settings, &sha, &credentials).await?;
-    let (content, encrypted) = keys.decrypt(&settings, &id, &content).await?;
-    Ok(ReadNote { content, encrypted })
+    crate::repository::read(&settings, &id, &sha, &credentials, &keys).await
 }
-async fn read_blob(settings: &Settings, sha: &str, credentials: &Credentials) -> Result<String> {
+
+pub(crate) async fn read_blob(
+    settings: &Settings,
+    sha: &str,
+    credentials: &Credentials,
+) -> Result<String> {
     if !sha.chars().all(|c| c.is_ascii_hexdigit()) || sha.len() != 40 {
         return Err(AppError::new("validation", "SHAが不正です。"));
     }
@@ -361,10 +337,10 @@ pub async fn validate_sync_key(
 }
 #[derive(Serialize)]
 pub struct ReadNote {
-    content: String,
-    encrypted: bool,
+    pub content: String,
+    pub encrypted: bool,
 }
-fn note_url(s: &Settings, id: &str) -> Result<Url> {
+pub(crate) fn note_url(s: &Settings, id: &str) -> Result<Url> {
     if id.len() != 36 || uuid::Uuid::parse_str(id).is_err() {
         return Err(AppError::new("validation", "メモIDが不正です。"));
     }
@@ -562,33 +538,16 @@ pub async fn github_write(
     credentials: State<'_, Credentials>,
     keys: State<'_, SyncKeys>,
 ) -> Result<String> {
-    private_repository(&settings, &credentials).await?;
-    let key = keys.key(&settings).await?;
-    let content = encrypt_sync(&key, &settings, &id, &content)?;
-    let mut b = json!({"message":"StickyNote: save note","branch":settings.branch_name,"content":STANDARD.encode(content.as_bytes())});
-    if let Some(sha) = sha {
-        b["sha"] = json!(sha);
-    }
-    let v = value(
-        request(
-            &credentials,
-            Method::PUT,
-            note_url(&settings, &id)?,
-            Some(b),
-            "repository",
-        )
-        .await?,
+    crate::repository::write(
+        &settings,
+        &id,
+        Some(&content),
+        sha.as_deref(),
+        &credentials,
+        &keys,
     )
-    .await?;
-    v.pointer("/content/sha")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| {
-            AppError::new(
-                "network",
-                "保存結果を確認できません。次回同期時に再確認します。",
-            )
-        })
+    .await?
+    .ok_or_else(crate::sync_security::integrity_error)
 }
 #[tauri::command]
 pub async fn github_remove(
@@ -596,16 +555,9 @@ pub async fn github_remove(
     id: String,
     sha: String,
     credentials: State<'_, Credentials>,
+    keys: State<'_, SyncKeys>,
 ) -> Result<()> {
-    private_repository(&settings, &credentials).await?;
-    request(
-        &credentials,
-        Method::DELETE,
-        note_url(&settings, &id)?,
-        Some(json!({"message":"StickyNote: delete note","branch":settings.branch_name,"sha":sha})),
-        "conflict",
-    )
-    .await?;
+    crate::repository::write(&settings, &id, None, Some(&sha), &credentials, &keys).await?;
     Ok(())
 }
 #[cfg(test)]

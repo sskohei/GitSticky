@@ -80,3 +80,14 @@ Windows NSISとAndroid ARM64デバッグAPKを最終版で生成し、APKのv2�
 - 同梱したSQLx SQLiteドライバーのソースとライセンスは、crates.ioが公開するSHA-256と照合した0.9.0のアーカイブとバイト単位で一致。変更はlibsqlite3-sysのバージョン制約のみ。上流のCargo.lockは同梱せず、アプリのCargo.lockを使用する。
 
 今回の検証では実ユーザーのDB・GitHubのメモを変更していない。実GitHubでの暗号鍵登録・端末間同期・Android実機のKeystore動作は未検証。APK/NSISの配布・インストールは実施していない。残存するGit履歴や過去のバックアップの平文はこの変更では消去しない。
+
+### 追加の同期保護と鍵交換（2026-11-11）
+
+- Vitestは62件成功（`pnpm.cmd exec vitest run --maxWorkers=1`）。鍵を外部へ控えるまで交換を開始できないこと、中断した交換を保存済みの鍵で再開すること、復旧用コピーの一覧・復元を追加検証。
+- Rustは50件成功（`cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`）。ローカルHTTPのGitHub API模擬サーバーを通して、本番と同じGit tree・commit・ref更新処理を検証。無断の暗号文差し替え・削除、管理ファイルを含む確認済み世代への巻き戻し、正規の削除同期、新旧鍵の切り替え、別端末の新鍵登録を確認。
+- 鍵の保存に失敗するとアップロードを始めないこと、ref更新前の失敗ではブランチが変わらないこと、ref更新後の応答喪失・再起動後も交換を再開できること、同時更新を上書きせず管理対象外ファイルを保持することを検証。
+- 別の鍵を再登録しても平文移行の完了状態と更新番号が維持されること、交換中は通常同期・鍵の再登録を停止することを検証。復旧用コピーの暗号化・別UUIDでの復元と、適用失敗時の同一トランザクションでのロールバックを確認。
+- ビルドで生成したACLをTauriの実際のresolver・RuntimeAuthorityへ渡し、mainのローカルIPCを許可し、別ウィンドウ/WebView・外部URLを拒否することを検証。ウィンドウ新規作成のcore権限も許可していないことを確認。
+- 型チェック・ESLint・本番フロントエンドビルド・変更対象のPrettierチェックが成功。`cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests --locked -- -D warnings` が成功。Windowsテストのリンクでは従来のlibsodiumのPDB欠落警告が出るが、50件の実行は成功。
+
+検証に使用したのはテスト用認証・鍵・メモのみ。実GitHubでの新しいGit Database API経路、Android実機、インストーラーの生成・配布は未実施。初回接続以前や未観測の世代の巻き戻し、過去のGit履歴の消去は保証しない。保護範囲と手順は [security.md](security.md) を参照。

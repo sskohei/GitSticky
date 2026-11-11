@@ -25,3 +25,5 @@ connection_idは `[owner.toLowerCase(), repository.toLowerCase(), branch]` のJS
 `notes.encrypted` は移行前が0、移行後が1。メモのtitle/body_md/tagsをJSONにまとめてAES-256-GCMで暗号化し、body_mdに格納する。titleには固定のプレースホルダー、tagsには空配列を保存する。Rustの読み取り境界で復号し、UIには従来のNote型を返す。色・ピン・日時・revision・dirtyなどの管理情報は平文のまま。
 
 端末専用鍵はOSの保護領域に保存し、GitHub認証の解除では削除しない。既存の平文は一括トランザクションで暗号化し、secure_delete/VACUUMで使用中のDBページを整理する。鍵の保存失敗や復号失敗時には上書きしない。詳細は [security.md](security.md) を参照。
+
+`note_backups` は `id INTEGER PRIMARY KEY AUTOINCREMENT`、`content TEXT NOT NULL`、`saved_at TEXT NOT NULL` を持つ。リモート更新・削除を反映する直前のNote全体を、端末専用鍵とメモ本体とは異なるAADで暗号化してcontentへ保存する。更新と同じトランザクションに含め、直近100件を保持する。設定からの復元では別UUIDを割り当て、既存のメモを上書きしない。タイトル・本文・タグを含む復旧内容を平文で保存しない。

@@ -64,6 +64,84 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.useRealTimers());
+async function openConnectedSettings() {
+  connected = true;
+  useAuth.setState({ status: { ...authStatus, connected: true, mode: 'oauth' } });
+  await act(async () => {
+    render(<SettingsDialog db={new MemoryDatabase()} onClose={() => {}} />);
+  });
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText('同期するリポジトリ'), { target: { value: '12' } });
+  });
+}
+it('requires an externally saved new key before rotation and clears it on success', async () => {
+  const previous = call.getMockImplementation()!;
+  call.mockImplementation(<T,>(command: string, args?: Record<string, unknown>) =>
+    command === 'security_rotate_sync_key'
+      ? Promise.resolve(undefined as T)
+      : (previous(command, args) as Promise<T>),
+  );
+  await openConnectedSettings();
+  fireEvent.click(screen.getByRole('button', { name: '同期用の暗号鍵を交換' }));
+  const rotate = screen.getByRole('button', { name: 'すべてのメモの鍵を交換' });
+  expect(rotate).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('交換する新しい暗号鍵'), {
+    target: { value: 'new-recovery-key' },
+  });
+  expect(rotate).toBeDisabled();
+  fireEvent.click(screen.getByLabelText('新しい鍵をアプリの外に安全に控えました'));
+  await act(async () => {
+    fireEvent.click(rotate);
+  });
+  expect(call).toHaveBeenCalledWith('security_rotate_sync_key', {
+    settings: expect.objectContaining({ repository_owner: 'octocat', repository_name: 'notes' }),
+    key: 'new-recovery-key',
+  });
+  expect(screen.queryByLabelText('交換する新しい暗号鍵')).not.toBeInTheDocument();
+  expect(screen.getByText(/鍵を交換しました/)).toBeInTheDocument();
+});
+it('resumes an interrupted rotation using the persisted key without requesting it again', async () => {
+  const previous = call.getMockImplementation()!;
+  call.mockImplementation(<T,>(command: string, args?: Record<string, unknown>) => {
+    if (command === 'security_status')
+      return Promise.resolve({ sync_ready: false, rotation_pending: true } as T);
+    if (command === 'security_rotate_sync_key') return Promise.resolve(undefined as T);
+    return previous(command, args) as Promise<T>;
+  });
+  await openConnectedSettings();
+  expect(screen.queryByLabelText('交換する新しい暗号鍵')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'このリポジトリに接続' })).toBeDisabled();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: '鍵の交換を再開' }));
+  });
+  expect(call).toHaveBeenCalledWith(
+    'security_rotate_sync_key',
+    expect.objectContaining({ key: null }),
+  );
+  expect(screen.getByRole('button', { name: 'このリポジトリに接続' })).toBeEnabled();
+});
+it('lists recovery copies and restores a selected copy without changing the current note', async () => {
+  const previous = call.getMockImplementation()!;
+  call.mockImplementation(<T,>(command: string, args?: Record<string, unknown>) => {
+    if (command === 'db_backups')
+      return Promise.resolve([
+        { id: 7, title: '復旧するメモ', saved_at: '2026-11-11T00:00:00Z' },
+      ] as T);
+    if (command === 'db_restore_backup') return Promise.resolve(undefined as T);
+    return previous(command, args) as Promise<T>;
+  });
+  await act(async () => {
+    render(<SettingsDialog db={new MemoryDatabase()} onClose={() => {}} />);
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: '復旧用コピーを表示' }));
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: '復旧するメモを復元' }));
+  });
+  expect(call).toHaveBeenCalledWith('db_restore_backup', { id: 7 });
+  expect(screen.getByText('復旧用コピーを新しいメモとして復元しました。')).toBeInTheDocument();
+});
 it('filters public repositories even if a native response includes them', async () => {
   connected = true;
   useAuth.setState({ status: { ...authStatus, connected: true, mode: 'oauth' } });
