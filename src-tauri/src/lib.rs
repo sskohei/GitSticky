@@ -1,5 +1,7 @@
 mod auth;
 mod commands;
+mod crypto;
+mod database;
 mod errors;
 mod github;
 mod legacy;
@@ -22,27 +24,6 @@ pub fn run() {
     }));
     builder
         .plugin(
-            tauri_plugin_sql::Builder::default()
-                .add_migrations(
-                    "sqlite:stickynote.db",
-                    vec![
-                        tauri_plugin_sql::Migration {
-                            version: 1,
-                            description: "initial schema",
-                            sql: include_str!("../migrations/001_initial.sql"),
-                            kind: tauri_plugin_sql::MigrationKind::Up,
-                        },
-                        tauri_plugin_sql::Migration {
-                            version: 2,
-                            description: "note tags",
-                            sql: include_str!("../migrations/002_note_tags.sql"),
-                            kind: tauri_plugin_sql::MigrationKind::Up,
-                        },
-                    ],
-                )
-                .build(),
-        )
-        .plugin(
             tauri::plugin::Builder::<tauri::Wry>::new("secure-auth")
                 .setup(|_app, _api| {
                     #[cfg(target_os = "android")]
@@ -57,14 +38,22 @@ pub fn run() {
         .setup(|app| {
             app.manage(auth::Credentials::new(
                 auth::AppConfig::bundled(),
-                std::sync::Arc::new(secure_store::NativeStore(app.handle().clone())),
+                std::sync::Arc::new(secure_store::NativeStore(app.handle().clone(), "auth")),
                 std::sync::Arc::new(oauth::GitHubOAuth::new().map_err(|_| {
                     std::io::Error::other("Could not initialize GitHub authentication")
                 })?),
             ));
+            app.manage(database::Database::default());
+            app.manage(crypto::SyncKeys::new(std::sync::Arc::new(
+                secure_store::NativeStore(app.handle().clone(), "sync-keys"),
+            )));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            crypto::security_status,
+            crypto::security_finish_migration,
+            crypto::security_generate_key,
+            crypto::security_set_sync_key,
             commands::db_snapshot,
             commands::db_save,
             commands::db_settings,

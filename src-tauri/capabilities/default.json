@@ -3,5 +3,5 @@
   "identifier": "main",
   "description": "Main local window only",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-destroy", "sql:allow-load"]
+  "permissions": ["core:default", "core:window:allow-destroy"]
 }

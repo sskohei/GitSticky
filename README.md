@@ -1,6 +1,6 @@
 # StickyNote
 
-Windows / Android向けの、GitHub同期型付箋メモアプリです。メモは端末のSQLiteに保存し、ユーザー自身のGitHubリポジトリに `notes/{UUID}.md` として同期します。Git CLIや追加のサーバーは不要です。
+Windows / Android向けの、GitHub同期型付箋メモアプリです。メモは端末のSQLiteに保存し、ユーザー自身の非公開GitHubリポジトリに、暗号化した `notes/{UUID}.md` として同期します。Git CLIや追加のサーバーは不要です。
 
 ## 主な機能
 
@@ -9,15 +9,15 @@ Windows / Android向けの、GitHub同期型付箋メモアプリです。メモ
 - CodeMirror 6のMarkdown編集とライブプレビューの同時表示、編集／分割／プレビュー切替、Undo / Redo、500ms自動保存、Ctrl+S
 - オフラインでの作成・編集・削除、再起動後の永続化
 - SHAによる双方向同期、削除マーカー、競合コピー、同期中の追加編集の保護
-- 起動・復帰・編集後15秒での自動同期、手動同期、自動同期の無効化
+- 手動同期、設定で有効にした場合の起動・復帰・編集後15秒の自動同期（新規設定では無効）
 - Light / Dark / Systemテーマ、GitHub Appでのログイン、認証の自動更新
-- Windows DPAPI / Android Keystoreによる認証情報の保護と起動時の接続復元
+- AES-256-GCMによるメモのローカル・同期時の暗号化、Windows DPAPI / Android Keystoreによる鍵と認証情報の保護
 
-Tauri v2 / React / TypeScript (strict) / Vite / pnpm / Tailwind CSS / shadcn形式のRadix UI / Lucide / Zustand / SQLite (Tauri SQL Plugin) / Rust / reqwestを使用します。
+Tauri v2 / React / TypeScript (strict) / Vite / pnpm / Tailwind CSS / shadcn形式のRadix UI / Lucide / Zustand / SQLite (SQLx) / Rust / reqwestを使用します。
 
 ## Windowsでの開発
 
-Node.js 22.12以上（検証環境は24）、pnpm 10、Rust stable 1.90以上のMSVCツールチェーン、Visual Studio C++ Build Tools、WebView2を用意してください。[Tauri公式の前提条件](https://v2.tauri.app/start/prerequisites/)も参照してください。
+Node.js 22.12以上（検証環境は24）、pnpm 10、Rust stable 1.94以上のMSVCツールチェーン、Visual Studio C++ Build Tools、WebView2を用意してください。[Tauri公式の前提条件](https://v2.tauri.app/start/prerequisites/)も参照してください。
 
 ```powershell
 pnpm.cmd install --frozen-lockfile
@@ -30,7 +30,7 @@ PowerShellの実行ポリシーに制約がある環境では `.cmd` を使用�
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ". ./scripts/env.ps1; pnpm.cmd tauri dev"
 ```
 
-`pnpm.cmd dev` はViteだけを起動します。ブラウザ単体ではSQLiteや保管庫を利用できないため、アプリを使うにはTauriで起動してください。
+`pnpm.cmd dev` はViteだけを起動します。開発サーバーは既定で127.0.0.1に限定します。Android実機から接続する場合だけ、`TAURI_DEV_HOST`に開発PCのLANアドレスを設定してください。ブラウザ単体ではSQLiteや保管庫を利用できないため、アプリを使うにはTauriで起動してください。
 
 ## Androidでの開発
 
@@ -57,15 +57,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/android-build.ps
 1. アプリの設定で「GitHubで接続」を押します。
 2. ブラウザのGitHubで、アプリに表示された短いコードを入力して認可します。
 3. 「リポジトリの許可」から対象リポジトリをGitHub Appに許可します。
-4. アプリで一覧を更新し、リポジトリとブランチを選んで「このリポジトリに接続」を押します。
+4. アプリで一覧を更新し、非公開リポジトリとブランチを選びます。
+5. 最初の端末では同期用の暗号鍵を作成して安全な場所へ控え、登録します。他の端末では同じ鍵を登録します。
+6. 「このリポジトリに接続」を押し、必要に応じて自動同期を有効にします。
 
-PATの作成・貼り付けや、起動ごとのパスフレーズ入力は不要です。トークンの取得・更新・OS保護領域への保存をRustが担当し、Reactに秘密情報を返しません。新しい端末では同じGitHub Appとリポジトリへ接続してください。
+PATの作成・貼り付けや、起動ごとのパスフレーズ入力は不要です。トークンの取得・更新・OS保護領域への保存をRustが担当し、Reactに認証トークンを返しません。新しい端末では同じGitHub App・リポジトリ・ブランチへ接続し、同じ同期用の暗号鍵を登録してください。
 
 同梱の `src-tauri/github-app.json` にはGitHub Appの公開Client ID / slugを設定済みです。別のGitHub Appを使う場合は、[登録・ビルド設定の手順](docs/github-auth.md)に従って設定を変更してください。未設定ビルドの接続ボタンは無効です。Client SecretやApp秘密鍵は不要です。
 
 接続時にはリポジトリとブランチを確認し、書き込み時にも権限エラーを判定します。エラー時もローカル変更は維持します。旧Stronghold保管庫は残し、必要な場合だけ一度のパスフレーズ入力で移行できます。
 
 接続先変更時にはローカルメモを新しいリポジトリと統合します。前の接続先のSHAは再利用しません。既存リポジトリの `README.md` や対応UUID以外のファイルは管理対象外です。
+
+メモの暗号化・既存データの移行・鍵の保管・過去のGit履歴に残る平文については、[セキュリティと移行の説明](docs/security.md)を確認してください。
 
 ## テストとビルド
 

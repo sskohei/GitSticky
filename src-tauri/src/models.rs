@@ -39,7 +39,7 @@ impl Default for Settings {
             repository_owner: String::new(),
             repository_name: String::new(),
             branch_name: "main".into(),
-            auto_sync_enabled: true,
+            auto_sync_enabled: false,
             theme: "system".into(),
             last_successful_sync_at: None,
         }

@@ -70,7 +70,7 @@ impl GitHubOAuth {
         })
     }
     async fn post(&self, path: &str, fields: &[(&str, &str)]) -> Result<serde_json::Value> {
-        let response = self
+        let mut response = self
             .client
             .post(format!("https://github.com/{path}"))
             .header("Accept", "application/json")
@@ -109,12 +109,16 @@ impl GitHubOAuth {
                 "GitHubの認証サーバーと通信できません。再試行してください。",
             ));
         }
-        let body = response
-            .bytes()
+        let mut body = zeroize::Zeroizing::new(Vec::new());
+        while let Some(chunk) = response
+            .chunk()
             .await
-            .map_err(|_| AppError::new("network", "認証の応答を受信できません。"))?;
-        if body.len() > 100_000 {
-            return Err(AppError::new("auth", "認証の応答が不正です。"));
+            .map_err(|_| AppError::new("network", "認証の応答を受信できません。"))?
+        {
+            if chunk.len() > 100_000 - body.len() {
+                return Err(AppError::new("auth", "認証の応答が不正です。"));
+            }
+            body.extend_from_slice(&chunk);
         }
         let value: serde_json::Value = serde_json::from_slice(&body)
             .map_err(|_| AppError::new("auth", "認証の応答を確認できません。"))?;

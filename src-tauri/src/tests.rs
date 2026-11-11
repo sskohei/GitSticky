@@ -1,8 +1,37 @@
 use crate::{
-    commands::{ack, apply},
+    commands::ack,
     models::{Note, SyncState},
 };
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+fn cipher() -> crate::crypto::NoteCipher {
+    crate::crypto::NoteCipher::new([42; 32])
+}
+async fn apply(
+    p: &SqlitePool,
+    id: &str,
+    revision: Option<i64>,
+    note: Option<Note>,
+    state: Option<SyncState>,
+    copy: Option<Note>,
+) -> crate::errors::Result<bool> {
+    let columns: Vec<(String,)> = sqlx::query_as("SELECT name FROM pragma_table_info('notes')")
+        .fetch_all(p)
+        .await?;
+    if !columns.iter().any(|(name,)| name == "encrypted") {
+        sqlx::query("ALTER TABLE notes ADD COLUMN encrypted BOOLEAN NOT NULL DEFAULT 0")
+            .execute(p)
+            .await?;
+    }
+    crate::commands::apply(p, id, revision, note, state, copy, &cipher()).await
+}
+async fn read_note(p: &SqlitePool) -> Note {
+    let note: Note = sqlx::query_as("SELECT id,title,body_md,color,pinned,tags,created_at,updated_at,deleted_at,local_revision,dirty FROM notes").fetch_one(p).await.unwrap();
+    if note.title == "暗号化されたメモ" {
+        crate::database::decode_note(&cipher(), note).unwrap()
+    } else {
+        note
+    }
+}
 async fn database() -> SqlitePool {
     let p = SqlitePoolOptions::new()
         .max_connections(1)
@@ -52,10 +81,7 @@ async fn acknowledgement_does_not_clear_new_edits() {
         .await
         .unwrap();
     ack(&p, &n.id, 1, &state(&n), false).await.unwrap();
-    let saved: Note = sqlx::query_as("SELECT * FROM notes")
-        .fetch_one(&p)
-        .await
-        .unwrap();
+    let saved = read_note(&p).await;
     assert!(saved.dirty);
     assert_eq!(saved.body_md, "本文\n次の行");
 }
@@ -74,10 +100,7 @@ async fn conflict_copy_and_remote_apply_are_atomic() {
             .await
             .is_err()
     );
-    let saved: Note = sqlx::query_as("SELECT * FROM notes")
-        .fetch_one(&p)
-        .await
-        .unwrap();
+    let saved = read_note(&p).await;
     assert_eq!(saved.body_md, n.body_md);
     let mut copy = n.clone();
     copy.id = uuid::Uuid::new_v4().to_string();
@@ -144,10 +167,7 @@ async fn reopening_sqlite_preserves_japanese_markdown() {
         .connect_with(options)
         .await
         .unwrap();
-    let saved: Note = sqlx::query_as("SELECT * FROM notes")
-        .fetch_one(&reopened)
-        .await
-        .unwrap();
+    let saved = read_note(&reopened).await;
     assert_eq!(saved.body_md, n.body_md);
     assert_eq!(saved.title, n.title);
     assert_eq!(saved.tags, n.tags);
@@ -185,10 +205,7 @@ async fn tag_migration_preserves_existing_notes_without_tags() {
         .execute(&p)
         .await
         .unwrap();
-    let saved: Note = sqlx::query_as("SELECT * FROM notes")
-        .fetch_one(&p)
-        .await
-        .unwrap();
+    let saved = read_note(&p).await;
     assert!(saved.tags.is_empty());
     assert_eq!(saved.body_md, n.body_md);
     assert_eq!(saved.local_revision, n.local_revision);
@@ -206,10 +223,7 @@ async fn tag_migration_preserves_existing_notes_without_tags() {
     )
     .await
     .unwrap());
-    let saved: Note = sqlx::query_as("SELECT * FROM notes")
-        .fetch_one(&p)
-        .await
-        .unwrap();
+    let saved = read_note(&p).await;
     assert_eq!(saved.tags, tagged.tags);
 }
 
@@ -236,10 +250,7 @@ async fn invalid_tags_are_rejected_without_overwriting_saved_notes() {
                 .await
                 .is_err()
         );
-        let saved: Note = sqlx::query_as("SELECT * FROM notes")
-            .fetch_one(&p)
-            .await
-            .unwrap();
+        let saved = read_note(&p).await;
         assert_eq!(saved.tags, n.tags);
         assert_eq!(saved.body_md, n.body_md);
     }

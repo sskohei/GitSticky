@@ -10,10 +10,10 @@ pub trait SecretStore: Send + Sync {
 pub fn storage_error() -> AppError {
     AppError::new(
         "secure_storage",
-        "端末の認証情報を読み書きできません。メモは保持されています。再試行してください。",
+        "端末の保護データを読み書きできません。メモは保持されています。再試行してください。",
     )
 }
-pub struct NativeStore(pub AppHandle);
+pub struct NativeStore(pub AppHandle, pub &'static str);
 
 #[cfg(windows)]
 mod desktop {
@@ -118,7 +118,12 @@ mod desktop {
                 .app_config_dir()
                 .map_err(|_| storage_error())?;
             fs::create_dir_all(&dir).map_err(|_| storage_error())?;
-            Ok(dir.join("github-auth.dpapi"))
+            Ok(dir.join(match self.1 {
+                "auth" => "github-auth.dpapi",
+                "notes-key" => "notes-key.dpapi",
+                "sync-keys" => "sync-keys.dpapi",
+                _ => return Err(storage_error()),
+            }))
         }
     }
     impl SecretStore for NativeStore {
@@ -177,7 +182,7 @@ impl SecretStore for NativeStore {
             .0
             .state::<AndroidBridge>()
             .0
-            .run_mobile_plugin("read", serde_json::json!({}))
+            .run_mobile_plugin("read", serde_json::json!({"slot":self.1}))
             .map_err(|_| storage_error())?;
         Ok(value["value"]
             .as_str()
@@ -188,7 +193,10 @@ impl SecretStore for NativeStore {
         self.0
             .state::<AndroidBridge>()
             .0
-            .run_mobile_plugin::<serde_json::Value>("write", serde_json::json!({"value":value}))
+            .run_mobile_plugin::<serde_json::Value>(
+                "write",
+                serde_json::json!({"slot":self.1,"value":value}),
+            )
             .map_err(|_| storage_error())?;
         Ok(())
     }
@@ -196,7 +204,7 @@ impl SecretStore for NativeStore {
         self.0
             .state::<AndroidBridge>()
             .0
-            .run_mobile_plugin::<serde_json::Value>("clear", serde_json::json!({}))
+            .run_mobile_plugin::<serde_json::Value>("clear", serde_json::json!({"slot":self.1}))
             .map_err(|_| storage_error())?;
         Ok(())
     }

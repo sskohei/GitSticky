@@ -4,16 +4,9 @@ use crate::{
 };
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use tauri::{AppHandle, Manager};
-pub async fn pool(app: &AppHandle) -> Result<SqlitePool> {
-    let state = app.state::<tauri_plugin_sql::DbInstances>();
-    let pools = state.0.read().await;
-    match pools.get("sqlite:stickynote.db") {
-        Some(tauri_plugin_sql::DbPool::Sqlite(p)) => Ok(p.clone()),
-        _ => Err(AppError::new(
-            "database",
-            "データベースを準備できませんでした。",
-        )),
-    }
+async fn database(app: &AppHandle) -> Result<crate::database::EncryptedDatabase> {
+    let state = app.state::<crate::database::Database>();
+    Ok(state.get(app).await?.clone())
 }
 fn validate(n: &Note) -> Result<()> {
     if uuid::Uuid::parse_str(&n.id).is_err()
@@ -35,11 +28,17 @@ fn validate(n: &Note) -> Result<()> {
     }
     Ok(())
 }
-async fn put(tx: &mut Transaction<'_, Sqlite>, n: &Note) -> Result<()> {
-    validate(n)?;
+async fn put(
+    tx: &mut Transaction<'_, Sqlite>,
+    note: &Note,
+    cipher: &crate::crypto::NoteCipher,
+) -> Result<()> {
+    validate(note)?;
+    let encrypted = crate::database::encode_note(cipher, note)?;
+    let n = &encrypted;
     let tags = serde_json::to_string(&n.tags)
         .map_err(|_| AppError::new("validation", "タグの形式が不正です。"))?;
-    sqlx::query("INSERT INTO notes (id,title,body_md,color,pinned,created_at,updated_at,deleted_at,local_revision,dirty,tags) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,body_md=excluded.body_md,color=excluded.color,pinned=excluded.pinned,created_at=excluded.created_at,updated_at=excluded.updated_at,deleted_at=excluded.deleted_at,local_revision=excluded.local_revision,dirty=excluded.dirty,tags=excluded.tags")
+    sqlx::query("INSERT INTO notes (id,title,body_md,color,pinned,created_at,updated_at,deleted_at,local_revision,dirty,tags,encrypted) VALUES(?,?,?,?,?,?,?,?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET title=excluded.title,body_md=excluded.body_md,color=excluded.color,pinned=excluded.pinned,created_at=excluded.created_at,updated_at=excluded.updated_at,deleted_at=excluded.deleted_at,local_revision=excluded.local_revision,dirty=excluded.dirty,tags=excluded.tags,encrypted=1")
  .bind(&n.id).bind(&n.title).bind(&n.body_md).bind(&n.color).bind(n.pinned).bind(&n.created_at).bind(&n.updated_at).bind(&n.deleted_at).bind(n.local_revision).bind(n.dirty).bind(tags).execute(&mut **tx).await?;
     Ok(())
 }
@@ -50,11 +49,13 @@ async fn put_state(tx: &mut Transaction<'_, Sqlite>, s: &SyncState) -> Result<()
 }
 #[tauri::command]
 pub async fn db_snapshot(app: AppHandle) -> Result<Snapshot> {
-    let p = pool(&app).await?;
+    let db = database(&app).await?;
+    let p = &db.pool;
     let mut tx = p.begin().await?;
-    let notes = sqlx::query_as::<_, Note>("SELECT * FROM notes")
+    let notes = sqlx::query_as::<_, Note>("SELECT id,title,body_md,color,pinned,tags,created_at,updated_at,deleted_at,local_revision,dirty FROM notes")
         .fetch_all(&mut *tx)
-        .await?;
+        .await?
+        .into_iter().map(|note| crate::database::decode_note(&db.cipher, note)).collect::<Result<Vec<_>>>()?;
     let states = sqlx::query_as::<_, SyncState>("SELECT * FROM sync_states")
         .fetch_all(&mut *tx)
         .await?;
@@ -75,7 +76,8 @@ pub async fn db_snapshot(app: AppHandle) -> Result<Snapshot> {
 }
 #[tauri::command]
 pub async fn db_save(app: AppHandle, mut note: Note) -> Result<()> {
-    let p = pool(&app).await?;
+    let db = database(&app).await?;
+    let p = &db.pool;
     let mut tx = p.begin().await?;
     sqlx::query("UPDATE notes SET dirty=dirty WHERE id=?")
         .bind(&note.id)
@@ -88,7 +90,7 @@ pub async fn db_save(app: AppHandle, mut note: Note) -> Result<()> {
     // Editor changes are local intent; always advance from the persisted revision.
     note.local_revision = rev.map_or(1, |r| r.0 + 1);
     note.dirty = true;
-    put(&mut tx, &note).await?;
+    put(&mut tx, &note, &db.cipher).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -96,7 +98,8 @@ pub async fn db_save(app: AppHandle, mut note: Note) -> Result<()> {
 pub async fn db_settings(app: AppHandle, settings: Settings) -> Result<()> {
     let raw = serde_json::to_string(&settings)
         .map_err(|_| AppError::new("validation", "設定が不正です。"))?;
-    let p = pool(&app).await?;
+    let db = database(&app).await?;
+    let p = &db.pool;
     let mut tx = p.begin().await?;
     let previous: Option<(String,)> = sqlx::query_as("SELECT value FROM app_settings WHERE id=1")
         .fetch_optional(&mut *tx)
@@ -131,8 +134,9 @@ pub async fn db_apply(
     state: Option<SyncState>,
     copy: Option<Note>,
 ) -> Result<bool> {
-    let p = pool(&app).await?;
-    apply(&p, &id, revision, note, state, copy).await
+    let db = database(&app).await?;
+    let p = &db.pool;
+    apply(p, &id, revision, note, state, copy, &db.cipher).await
 }
 pub async fn apply(
     p: &SqlitePool,
@@ -141,6 +145,7 @@ pub async fn apply(
     note: Option<Note>,
     state: Option<SyncState>,
     copy: Option<Note>,
+    cipher: &crate::crypto::NoteCipher,
 ) -> Result<bool> {
     let mut tx = p.begin().await?;
     // Acquire a write reservation before checking the revision.
@@ -156,10 +161,10 @@ pub async fn apply(
         return Ok(false);
     }
     if let Some(c) = copy {
-        put(&mut tx, &c).await?;
+        put(&mut tx, &c, cipher).await?;
     }
     if let Some(n) = note {
-        put(&mut tx, &n).await?;
+        put(&mut tx, &n, cipher).await?;
     } else {
         sqlx::query("DELETE FROM notes WHERE id=?")
             .bind(id)
@@ -180,7 +185,7 @@ pub async fn db_ack(
     state: SyncState,
     deleted: bool,
 ) -> Result<()> {
-    ack(&pool(&app).await?, &id, revision, &state, deleted).await
+    ack(&database(&app).await?.pool, &id, revision, &state, deleted).await
 }
 pub async fn ack(
     p: &SqlitePool,

@@ -33,7 +33,7 @@ export const defaultSettings: Settings = {
   repository_owner: '',
   repository_name: '',
   branch_name: 'main',
-  auto_sync_enabled: true,
+  auto_sync_enabled: false,
   theme: 'system',
   last_successful_sync_at: null,
 };

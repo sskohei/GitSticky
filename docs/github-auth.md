@@ -51,7 +51,7 @@ CIなどでは `STICKYNOTE_GITHUB_CLIENT_ID` / `STICKYNOTE_GITHUB_APP_SLUG` の�
 
 空のリポジトリには、READMEの初期化などで対象ブランチを先に作成してください。ブランチ保護で直接書き込めない場合は、メモ用の書き込み可能なブランチを選んでください。
 
-認証情報はWindowsではユーザー単位のDPAPIで暗号化した `github-auth.dpapi`、AndroidではKeystoreのAES-GCMで暗号化したアプリ専用SharedPreferencesに保存します。端末に認証情報を残せない場合は接続を成功扱いにしません。Androidでは認証用SharedPreferencesをバックアップ・端末移行から除外します。
+認証情報はWindowsではユーザー単位のDPAPIで暗号化した `github-auth.dpapi`、AndroidではKeystoreのAES-GCMで暗号化したアプリ専用SharedPreferencesに保存します。端末に認証情報を残せない場合は接続を成功扱いにしません。Androidでは認証情報・メモ・暗号鍵の自動バックアップと端末移行を無効にします。暗号化したメモの移行にはGitHub同期と控えた同期用鍵を使用します。
 
 アクセストークンは期限の60秒前または401応答時に自動更新します。更新は直列実行し、同じ古いトークンへの並行401で複数回更新しません。refresh tokenの期限切れ・権限取り消し時は再認証が必要です。端末の認証が復号できない場合は「端末の認証をリセット」で認証のみを消して接続し直せます。メモは保持されます。
 

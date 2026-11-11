@@ -1,5 +1,6 @@
 use crate::{
     auth::Credentials,
+    crypto::{decrypt_sync, encrypt_sync, SyncKeys},
     errors::{AppError, Result},
     models::Settings,
 };
@@ -156,28 +157,55 @@ async fn request(
         "通信を再試行しましたが失敗しました。",
     ))
 }
-async fn value(r: Response) -> Result<Value> {
-    let length = r.content_length().unwrap_or(0);
-    if length > 30_000_000 {
+async fn bounded_bytes(mut response: Response) -> Result<Vec<u8>> {
+    const LIMIT: usize = 30_000_000;
+    if response.content_length().is_some_and(|n| n > LIMIT as u64) {
         return Err(AppError::new("validation", "GitHubの応答が大きすぎます。"));
     }
-    r.json()
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
+        .map_err(|_| AppError::new("network", "GitHubの応答を読み取れません。"))?
+    {
+        if chunk.len() > LIMIT - bytes.len() {
+            return Err(AppError::new("validation", "GitHubの応答が大きすぎます。"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+async fn value(r: Response) -> Result<Value> {
+    serde_json::from_slice(&bounded_bytes(r).await?)
         .map_err(|_| AppError::new("network", "GitHubの応答を読み取れません。"))
 }
-#[tauri::command]
-pub async fn github_test(settings: Settings, credentials: State<'_, Credentials>) -> Result<()> {
+fn require_private(repo: &Value) -> Result<()> {
+    if repo["private"].as_bool() != Some(true) {
+        return Err(AppError::new(
+            "permission",
+            "安全のため、非公開リポジトリだけに同期できます。GitHubで公開範囲を確認してください。",
+        ));
+    }
+    Ok(())
+}
+async fn private_repository(settings: &Settings, credentials: &Credentials) -> Result<Value> {
     let repo = value(
         request(
-            &credentials,
+            credentials,
             Method::GET,
-            url(&settings, &[])?,
+            url(settings, &[])?,
             None,
             "repository",
         )
         .await?,
     )
     .await?;
+    require_private(&repo)?;
+    Ok(repo)
+}
+#[tauri::command]
+pub async fn github_test(settings: Settings, credentials: State<'_, Credentials>) -> Result<()> {
+    let repo = private_repository(&settings, &credentials).await?;
     if repo.pointer("/permissions/push").and_then(Value::as_bool) == Some(false) {
         return Err(AppError::new(
             "permission",
@@ -215,13 +243,18 @@ struct Entry {
 pub async fn github_list(
     settings: Settings,
     credentials: State<'_, Credentials>,
+    keys: State<'_, SyncKeys>,
 ) -> Result<Vec<RemoteFile>> {
-    // A branch lookup distinguishes a missing branch from an empty notes directory.
+    private_repository(&settings, &credentials).await?;
+    keys.key(&settings).await?;
+    list_files(&settings, &credentials).await
+}
+async fn list_files(settings: &Settings, credentials: &Credentials) -> Result<Vec<RemoteFile>> {
     let branch = value(
         request(
-            &credentials,
+            credentials,
             Method::GET,
-            url(&settings, &["branches", &settings.branch_name])?,
+            url(settings, &["branches", &settings.branch_name])?,
             None,
             "branch",
         )
@@ -232,12 +265,10 @@ pub async fn github_list(
         .pointer("/commit/commit/tree/sha")
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::new("network", "ブランチの応答が不正です。"))?;
-    let mut u = url(&settings, &["git", "trees", sha])?;
+    let mut u = url(settings, &["git", "trees", sha])?;
     u.query_pairs_mut().append_pair("recursive", "1");
-    let r = request(&credentials, Method::GET, u, None, "repository").await?;
-    let tree: Tree = r
-        .json()
-        .await
+    let r = request(credentials, Method::GET, u, None, "repository").await?;
+    let tree: Tree = serde_json::from_slice(&bounded_bytes(r).await?)
         .map_err(|_| AppError::new("network", "ファイル一覧を取得できません。"))?;
     if tree.truncated {
         return Err(AppError::new(
@@ -255,6 +286,7 @@ pub async fn github_list(
         })
         .collect())
 }
+
 fn managed_id(path: &str) -> Option<String> {
     let id = path.strip_prefix("notes/")?.strip_suffix(".md")?;
     if id.len() != 36 || uuid::Uuid::parse_str(id).is_err() {
@@ -265,37 +297,72 @@ fn managed_id(path: &str) -> Option<String> {
 #[tauri::command]
 pub async fn github_read(
     settings: Settings,
+    id: String,
     sha: String,
     credentials: State<'_, Credentials>,
-) -> Result<String> {
+    keys: State<'_, SyncKeys>,
+) -> Result<ReadNote> {
+    note_url(&settings, &id)?;
+    let content = read_blob(&settings, &sha, &credentials).await?;
+    let (content, encrypted) = keys.decrypt(&settings, &id, &content).await?;
+    Ok(ReadNote { content, encrypted })
+}
+async fn read_blob(settings: &Settings, sha: &str, credentials: &Credentials) -> Result<String> {
     if !sha.chars().all(|c| c.is_ascii_hexdigit()) || sha.len() != 40 {
         return Err(AppError::new("validation", "SHAが不正です。"));
     }
     let v = value(
         request(
-            &credentials,
+            credentials,
             Method::GET,
-            url(&settings, &["git", "blobs", &sha])?,
+            url(settings, &["git", "blobs", sha])?,
             None,
             "conflict",
         )
         .await?,
     )
     .await?;
-    if v["encoding"] != "base64" || v["size"].as_u64().unwrap_or(u64::MAX) > 5_000_000 {
+    if v["encoding"] != "base64" || v["size"].as_u64().unwrap_or(u64::MAX) > 9_000_000 {
         return Err(AppError::new(
-            "invalid_markdown",
+            "locked",
             "メモのエンコードまたはサイズが不正です。",
         ));
     }
     let content = v["content"]
         .as_str()
-        .ok_or_else(|| AppError::new("invalid_markdown", "本文がありません。"))?;
+        .ok_or_else(|| AppError::new("locked", "本文がありません。"))?;
     let bytes = STANDARD
         .decode(content.replace(['\n', '\r'], ""))
-        .map_err(|_| AppError::new("invalid_markdown", "本文を復号できません。"))?;
-    String::from_utf8(bytes)
-        .map_err(|_| AppError::new("invalid_markdown", "メモがUTF-8ではありません。"))
+        .map_err(|_| AppError::new("locked", "本文を復号できません。"))?;
+    let content = String::from_utf8(bytes)
+        .map_err(|_| AppError::new("locked", "メモがUTF-8ではありません。"))?;
+    Ok(content)
+}
+pub async fn validate_sync_key(
+    settings: &Settings,
+    key: &crate::crypto::NoteCipher,
+    credentials: &Credentials,
+    require_encrypted: bool,
+) -> Result<bool> {
+    private_repository(settings, credentials).await?;
+    let mut has_legacy = false;
+    for file in list_files(settings, credentials).await? {
+        let content = read_blob(settings, &file.sha, credentials).await?;
+        let (_, encrypted) = decrypt_sync(key, settings, &file.id, &content)?;
+        has_legacy |= !encrypted;
+        if require_encrypted && !encrypted {
+            return Err(AppError::new(
+                "locked",
+                "平文メモが残っているため、暗号化の移行を完了できません。",
+            ));
+        }
+    }
+    Ok(has_legacy)
+}
+#[derive(Serialize)]
+pub struct ReadNote {
+    content: String,
+    encrypted: bool,
 }
 fn note_url(s: &Settings, id: &str) -> Result<Url> {
     if id.len() != 36 || uuid::Uuid::parse_str(id).is_err() {
@@ -310,6 +377,7 @@ pub struct RepositoryOption {
     pub owner: String,
     pub name: String,
     pub default_branch: String,
+    pub private: bool,
 }
 fn api_url(path: &str, page: u32) -> Result<Url> {
     let mut u = Url::parse(&format!("https://api.github.com/{path}"))
@@ -334,6 +402,7 @@ fn repo_option(v: &Value) -> Result<RepositoryOption> {
             .ok_or_else(|| AppError::new("network", "リポジトリ名を取得できません。"))?
             .into(),
         default_branch: v["default_branch"].as_str().unwrap_or("main").into(),
+        private: v["private"].as_bool() == Some(true),
     })
 }
 #[tauri::command]
@@ -439,6 +508,7 @@ pub async fn github_repositories(
             }
         }
     }
+    repositories.retain(|repo| repo.private);
     repositories.sort_by(|a, b| {
         a.owner
             .to_lowercase()
@@ -490,7 +560,11 @@ pub async fn github_write(
     content: String,
     sha: Option<String>,
     credentials: State<'_, Credentials>,
+    keys: State<'_, SyncKeys>,
 ) -> Result<String> {
+    private_repository(&settings, &credentials).await?;
+    let key = keys.key(&settings).await?;
+    let content = encrypt_sync(&key, &settings, &id, &content)?;
     let mut b = json!({"message":"StickyNote: save note","branch":settings.branch_name,"content":STANDARD.encode(content.as_bytes())});
     if let Some(sha) = sha {
         b["sha"] = json!(sha);
@@ -523,6 +597,7 @@ pub async fn github_remove(
     sha: String,
     credentials: State<'_, Credentials>,
 ) -> Result<()> {
+    private_repository(&settings, &credentials).await?;
     request(
         &credentials,
         Method::DELETE,
@@ -536,6 +611,17 @@ pub async fn github_remove(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn public_and_unknown_visibility_are_rejected() {
+        assert!(require_private(&json!({"private":true})).is_ok());
+        for repo in [
+            json!({"private":false}),
+            json!({}),
+            json!({"private":"true"}),
+        ] {
+            assert!(require_private(&repo).is_err());
+        }
+    }
     #[test]
     fn errors_are_typed() {
         for (status, code) in [

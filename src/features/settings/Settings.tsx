@@ -24,6 +24,7 @@ interface Repository {
   owner: string;
   name: string;
   default_branch: string;
+  private: boolean;
 }
 export function SettingsDialog({ db, onClose }: { db: LocalDatabase; onClose: () => void }) {
   const settings = useApp((s) => s.settings);
@@ -40,6 +41,10 @@ export function SettingsDialog({ db, onClose }: { db: LocalDatabase; onClose: ()
   const [message, setMessage] = useState('');
   const [success, setSuccess] = useState(false);
   const [legacyPass, setLegacyPass] = useState('');
+  const [syncKey, setSyncKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [keyReady, setKeyReady] = useState(false);
+  const [keyLoading, setKeyLoading] = useState(false);
   const mounted = useRef(true);
   const attempt = useRef(0);
   const repositoryRequest = useRef(0);
@@ -57,12 +62,52 @@ export function SettingsDialog({ db, onClose }: { db: LocalDatabase; onClose: ()
       void native('auth_cancel', { sessionId: null }).catch(() => {});
     };
   }, []);
+  useEffect(() => {
+    let active = true;
+    setSyncKey('');
+    setShowKey(false);
+    setKeyReady(false);
+    setKeyLoading(false);
+    if (!form.repository_owner || !form.repository_name) return;
+    setKeyLoading(true);
+    void native<{ sync_ready: boolean }>('security_status', { settings: form })
+      .then((status) => {
+        if (active) setKeyReady(status.sync_ready);
+      })
+      .catch((error) => {
+        if (active) tell(error);
+      })
+      .finally(() => {
+        if (active) setKeyLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+    // Key availability belongs to the selected connection, independent of display preferences.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.repository_owner, form.repository_name, form.branch_name]);
+  const saveKey = async () => {
+    setBusy(true);
+    try {
+      await native('security_set_sync_key', { settings: form, key: syncKey });
+      setSyncKey('');
+      setShowKey(false);
+      setKeyReady(true);
+      setSuccess(true);
+      setMessage('暗号鍵を端末の保護領域に登録しました。');
+    } catch (e) {
+      tell(e);
+    } finally {
+      setBusy(false);
+    }
+  };
   const loadRepositories = useCallback(async () => {
     const request = ++repositoryRequest.current;
     setLoading(true);
     try {
       const result = await native<Repository[]>('github_repositories');
-      if (mounted.current && request === repositoryRequest.current) setRepositories(result);
+      if (mounted.current && request === repositoryRequest.current)
+        setRepositories(result.filter((repo) => repo.private === true));
     } catch (e) {
       if (mounted.current && request === repositoryRequest.current) {
         setSuccess(false);
@@ -200,6 +245,7 @@ export function SettingsDialog({ db, onClose }: { db: LocalDatabase; onClose: ()
         connectionId(form) === connectionId(settings) ? settings.last_successful_sync_at : null,
     };
     try {
+      if (test && !keyReady) throw new AppError('locked', '先に同期用の暗号鍵を登録してください。');
       if (test) await native('github_test', { settings: value });
       await db.settings(value);
       await useApp.getState().refresh(db);
@@ -299,7 +345,7 @@ export function SettingsDialog({ db, onClose }: { db: LocalDatabase; onClose: ()
           GitHubとの同期
         </h3>
         <p className="hint">
-          自分のリポジトリにメモを保存します。ログイン情報は端末で保護され、次回起動時も接続を維持します。
+          非公開リポジトリだけに同期します。メモのタイトル・本文・タグは端末内と送信前に暗号化されます。ログイン情報は端末で保護されます。
         </p>
         {auth.error && (
           <div>
@@ -358,7 +404,7 @@ export function SettingsDialog({ db, onClose }: { db: LocalDatabase; onClose: ()
                 <option value="">{loading ? '取得中…' : 'リポジトリを選択'}</option>
                 {repositories.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.owner}/{r.name}
+                    {r.owner}/{r.name}（非公開）
                   </option>
                 ))}
               </select>
@@ -433,9 +479,77 @@ export function SettingsDialog({ db, onClose }: { db: LocalDatabase; onClose: ()
                 現在のローカルメモも新しい接続先と統合されます。以前の接続先のSHAは再利用しません。
               </p>
             )}
+            {selected && (
+              <section aria-label="同期の暗号化">
+                <h4>同期用の暗号鍵</h4>
+                {keyReady ? (
+                  <>
+                    <p className="hint">この同期先の暗号鍵は登録済みです。</p>
+                    <Button variant="ghost" disabled={busy} onClick={() => setKeyReady(false)}>
+                      同期用の暗号鍵を再登録
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <p className="hint">
+                      別の端末と同期する場合は、その端末で作成した同じ鍵を入力してください。初めて使う同期先では新しい鍵を作成し、パスワード管理アプリなどへ控えてください。鍵を失うとGitHub上のメモを復元できません。
+                    </p>
+                    <label>
+                      同期用の暗号鍵
+                      <input
+                        type={showKey ? 'text' : 'password'}
+                        autoComplete="off"
+                        spellCheck={false}
+                        value={syncKey}
+                        onChange={(event) => setSyncKey(event.target.value)}
+                      />
+                    </label>
+                    <label className="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={showKey}
+                        onChange={(event) => setShowKey(event.target.checked)}
+                      />
+                      鍵を表示する
+                    </label>
+                    <div className="row">
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => {
+                          setBusy(true);
+                          void native<string>('security_generate_key')
+                            .then(setSyncKey)
+                            .catch(tell)
+                            .finally(() => setBusy(false));
+                        }}
+                      >
+                        新しい鍵を作成
+                      </Button>
+                      <Button
+                        disabled={busy || keyLoading || !syncKey.trim()}
+                        onClick={() => {
+                          void saveKey();
+                        }}
+                      >
+                        暗号鍵を登録
+                      </Button>
+                    </div>
+                  </>
+                )}
+                <p className="hint">
+                  以前の平文メモは同期時に暗号化します。過去のGit履歴には平文が残るため、機密メモは新しい非公開リポジトリへ移すことを推奨します。
+                </p>
+              </section>
+            )}
             <Button
               disabled={
-                busy || branchesLoading || !selected || !branches.includes(form.branch_name)
+                busy ||
+                keyLoading ||
+                !keyReady ||
+                branchesLoading ||
+                !selected ||
+                !branches.includes(form.branch_name)
               }
               onClick={() => {
                 void save(true);
