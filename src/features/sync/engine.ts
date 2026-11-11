@@ -25,10 +25,15 @@ export class SyncEngine {
     const cid = connectionId(settings);
     // The complete listing and all downloads must succeed before absence means deletion.
     const files = await this.github.list(settings);
-    const remote = new Map<string, { sha: string; note: Note | null }>();
+    const remote = new Map<string, { sha: string; note: Note | null; needsEncryption?: boolean }>();
     for (const f of files) {
       try {
-        remote.set(f.id, { sha: f.sha, note: parse(await this.github.read(settings, f), f.id) });
+        const content = await this.github.read(settings, f);
+        remote.set(f.id, {
+          sha: f.sha,
+          note: parse(content, f.id),
+          needsEncryption: f.needsEncryption,
+        });
       } catch (e) {
         if (e instanceof AppError && e.code === 'invalid_markdown') {
           remote.set(f.id, { sha: f.sha, note: null });
@@ -72,8 +77,15 @@ export class SyncEngine {
           updated_at: new Date().toISOString(),
         });
         try {
+          const encryptLegacy = async () => {
+            if (r?.note && r.needsEncryption) {
+              r.sha = await this.github.write(settings, id, serialize(r.note), r.sha);
+              r.needsEncryption = false;
+            }
+          };
           if (!local) {
             if (r?.note) {
+              await encryptLegacy();
               if (!(await apply(r.note, r.sha))) continue;
             }
             break;
@@ -82,6 +94,7 @@ export class SyncEngine {
           const remoteChanged = r
             ? !base || r.sha !== base.last_synced_sha
             : Boolean(base?.last_synced_sha);
+          await encryptLegacy();
           if (r?.note && same(local, r.note)) {
             await this.db.ack(id, local.local_revision, state(r.sha, local.local_revision), false);
             break;
@@ -119,6 +132,7 @@ export class SyncEngine {
               remote.set(id, {
                 sha: fresh.sha,
                 note: parse(await this.github.read(settings, fresh), id),
+                needsEncryption: fresh.needsEncryption,
               });
             else remote.delete(id);
             continue;
@@ -128,6 +142,7 @@ export class SyncEngine {
       }
     }
     if (!result.errors.length) {
+      await this.github.finishMigration?.(settings);
       const latest = await this.db.snapshot();
       await this.db.settings({
         ...latest.settings,

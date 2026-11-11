@@ -2,23 +2,27 @@
 
 Reactは表示・ローカル操作の要求・同期のオーケストレーションを担当し、RustはSQLiteトランザクション・GitHub通信・秘密情報の管理を担当する。UIからGitHubへ直接通信しない。
 
-| 領域 | 責務 |
-| --- | --- |
-| components | Radix Dialog、shadcn形式のButton、共通UI |
-| features/notes | 本文を表示しないグリッド、ローカル検索、ピン順の表示 |
-| features/editor | CodeMirror、GFM、編集バッファ、保存キュー |
-| features/settings | GitHub接続、リポジトリ選択、テーマ、自動同期 |
-| features/sync | YAML変換、差分判定、GitHubインターフェース、自動同期 |
-| stores | Zustandの永続データのスナップショットと検索語 |
-| db | テストで差し替え可能なLocalDatabase、Tauriアダプタ |
-| src-tauri/src/commands.rs | 型付きDBコマンドとトランザクション |
-| src-tauri/src/github.rs | HTTPSの固定ホスト、API DTO、タイムアウト、エラー分類 |
-| src-tauri/src/auth.rs / oauth.rs | Device Flow、期限管理、更新の直列化 |
-| src-tauri/src/secure_store.rs | Windows DPAPI / Android Keystore、暗号化保存 |
-| src-tauri/src/legacy.rs | 旧Stronghold保管庫の読み取り専用移行 |
-| src-tauri/src/errors.rs | UIへ渡す機密情報を含まないエラー |
+同期の整合性は `repository.rs`（Git Database APIによる単一commit更新）と `sync_security.rs`（暗号化一覧・確認済み世代の検証）が担当する。`crypto.rs` は移行完了状態・確認済み世代・交換中の鍵をOS保護領域で永続化する。`backups.rs` はリモート反映前の暗号化コピーの保存と新しいメモとしての復元を担当する。独自IPCはbuild.rsのAppManifestに登録し、permissions/main.tomlとmain capabilityで許可する。
 
-Tauri SQL Pluginが接続とマイグレーションを管理し、Rustは公開されたDbInstancesから同じsqlxプールを取得する。複数SQL文をJSから個別送信すると原子的な更新にならないため、競合解決・同期確認・設定変更はRustトランザクションにまとめた。
+| 領域                             | 責務                                                 |
+| -------------------------------- | ---------------------------------------------------- |
+| components                       | Radix Dialog、shadcn形式のButton、共通UI             |
+| features/notes                   | 本文を表示しないグリッド、ローカル検索、ピン順の表示 |
+| features/editor                  | CodeMirror、GFM、編集バッファ、保存キュー            |
+| features/settings                | GitHub接続、リポジトリ選択、テーマ、自動同期         |
+| features/sync                    | YAML変換、差分判定、GitHubインターフェース、自動同期 |
+| stores                           | Zustandの永続データのスナップショットと検索語        |
+| db                               | テストで差し替え可能なLocalDatabase、Tauriアダプタ   |
+| src-tauri/src/commands.rs        | 型付きDBコマンドとトランザクション                   |
+| src-tauri/src/database.rs        | ローカル暗号化、既存DBの移行、SQLx接続               |
+| src-tauri/src/crypto.rs          | AES-256-GCM、同期用鍵の保管、移行後の平文拒否        |
+| src-tauri/src/github.rs          | HTTPSの固定ホスト、API DTO、タイムアウト、エラー分類 |
+| src-tauri/src/auth.rs / oauth.rs | Device Flow、期限管理、更新の直列化                  |
+| src-tauri/src/secure_store.rs    | Windows DPAPI / Android Keystore、暗号化保存         |
+| src-tauri/src/legacy.rs          | 旧Stronghold保管庫の読み取り専用移行                 |
+| src-tauri/src/errors.rs          | UIへ渡す機密情報を含まないエラー                     |
+
+Rustの `database.rs` がSQLxの接続・マイグレーションとローカルの暗号化鍵を管理する。フロントエンドに任意のSQLやDBロード権限は与えない。複数SQL文をJSから個別送信すると原子的な更新にならないため、競合解決・同期確認・設定変更はRustトランザクションにまとめた。
 
 GitHub AppのDevice Flowを使用し、公開Client IDとslugだけをビルドに含める。Rustがトークンを取得し、Reactには確認コードと接続状態だけを返す。トークンをSQLite・ログ・localStorageへ保存しない。
 
@@ -29,3 +33,5 @@ Windowsではユーザー単位のDPAPI、AndroidではKeystoreのAES-GCMで暗�
 CSPで外部スクリプト・外部通信を拒否する。RustはAPI用のapi.github.comと認証用のgithub.comの固定HTTPSエンドポイントだけに送信し、リダイレクトを追わない。フロントエンドには汎用HTTP、SQL実行、秘密情報の読取権限を与えない。
 
 Windowsの終了要求は非同期ハンドラでエディタの保存完了を待ち、保存失敗時のみpreventDefaultする。成功後はTauri APIがウィンドウを破棄するため、mainウィンドウにcore:window:allow-destroyを付与する。[TauriのonCloseRequested / destroy仕様](https://v2.tauri.app/reference/javascript/api/namespacewindow/)に合わせ、終了要求を再帰的に発行しない。
+
+メモのタイトル・本文・タグはローカル保存時とGitHubへの送信前に暗号化する。公開範囲は同期開始時と各書き込み・削除前にRustで再確認する。詳細と互換性の制限は [security.md](security.md) を参照。

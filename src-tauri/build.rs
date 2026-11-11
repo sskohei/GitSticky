@@ -2,5 +2,35 @@ fn main() {
     println!("cargo:rerun-if-env-changed=STICKYNOTE_GITHUB_CLIENT_ID");
     println!("cargo:rerun-if-env-changed=STICKYNOTE_GITHUB_APP_SLUG");
     println!("cargo:rerun-if-changed=github-app.json");
-    tauri_build::build()
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
+        tauri_build::AppManifest::new().commands(&[
+            "db_backups",
+            "db_restore_backup",
+            "security_rotate_sync_key",
+            "security_status",
+            "security_finish_migration",
+            "security_generate_key",
+            "security_set_sync_key",
+            "db_snapshot",
+            "db_save",
+            "db_settings",
+            "db_apply",
+            "db_ack",
+            "auth_status",
+            "auth_begin",
+            "auth_poll",
+            "auth_cancel",
+            "auth_disconnect",
+            "auth_open_browser",
+            "auth_import_legacy",
+            "github_repositories",
+            "github_branches",
+            "github_test",
+            "github_list",
+            "github_read",
+            "github_write",
+            "github_remove",
+        ]),
+    ))
+    .expect("Could not build the application ACL")
 }

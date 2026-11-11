@@ -92,6 +92,8 @@ struct AuthState {
     starting: Option<String>,
 }
 pub struct Credentials {
+    #[cfg(test)]
+    pub api_base: Option<reqwest::Url>,
     inner: Mutex<AuthState>,
     store: Arc<dyn SecretStore>,
     transport: Arc<dyn OAuthTransport>,
@@ -127,6 +129,8 @@ impl Credentials {
         transport: Arc<dyn OAuthTransport>,
     ) -> Self {
         Self {
+            #[cfg(test)]
+            api_base: None,
             inner: Mutex::new(AuthState::default()),
             config,
             store,

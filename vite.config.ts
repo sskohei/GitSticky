@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
-  server: { port: 1420, strictPort: true, host: '0.0.0.0' },
+  server: { port: 1420, strictPort: true, host: process.env.TAURI_DEV_HOST || '127.0.0.1' },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
   test: { environment: 'jsdom', setupFiles: ['./src/test/setup.ts'] },
 });

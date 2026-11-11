@@ -26,7 +26,11 @@ it('suspends synchronization while connection settings and credentials are being
   });
   expect(github.list).not.toHaveBeenCalled();
   await act(async () => {
-    await db.settings({ ...db.data.settings, repository_name: 'new-target' });
+    await db.settings({
+      ...db.data.settings,
+      auto_sync_enabled: true,
+      repository_name: 'new-target',
+    });
     await useApp.getState().refresh(db);
   });
   expect(github.list).not.toHaveBeenCalled();

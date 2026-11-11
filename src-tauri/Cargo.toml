@@ -2,7 +2,7 @@
 name = "sticky-note"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.90"
+rust-version = "1.94"
 
 [lib]
 name = "sticky_note_lib"
@@ -13,9 +13,10 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-stronghold = "2"
-sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "json"] }
+sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "json", "derive"] }
+libsqlite3-sys = { version = "0.39.1", features = ["bundled"] }
+aes-gcm = { version = "0.10.3", features = ["zeroize"] }
 tokio = { version = "1", features = ["sync", "time", "macros", "rt-multi-thread"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -40,3 +41,6 @@ opt-level = 3
 [profile.dev.package.pbkdf2]
 opt-level = 3
 
+# Upstream SQLx 0.9 caps SQLite below the security-fixed release.
+[patch.crates-io]
+sqlx-sqlite = { path = "vendor/sqlx-sqlite" }

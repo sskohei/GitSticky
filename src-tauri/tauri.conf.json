@@ -26,11 +26,18 @@
   },
   "bundle": {
     "active": true,
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico", "icons/icon.icns"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
     "targets": ["nsis"],
     "shortDescription": "GitHubと同期する付箋メモ",
     "category": "Productivity",
-    "android": { "minSdkVersion": 24 }
-  },
-  "plugins": { "sql": { "preload": ["sqlite:stickynote.db"] } }
+    "android": {
+      "minSdkVersion": 24
+    }
+  }
 }

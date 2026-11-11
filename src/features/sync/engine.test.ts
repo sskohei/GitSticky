@@ -19,6 +19,49 @@ describe('safe bidirectional sync', () => {
     body_md: '# こんにちは\n\n本文です。\n',
   });
   const run = () => engine.run(db.data.settings);
+  it('re-encrypts unchanged legacy notes in one sync without manufacturing conflicts', async () => {
+    const n = local();
+    await db.save(n);
+    await run();
+    const read = gh.read.bind(gh);
+    gh.read = async (settings, file) => {
+      const content = await read(settings, file);
+      file.needsEncryption = true;
+      return content;
+    };
+    const before = gh.files.get(n.id)!.sha;
+    const result = await run();
+    expect(result.conflicts).toBe(0);
+    expect(gh.files.get(n.id)!.sha).not.toBe(before);
+    expect(db.data.notes).toHaveLength(1);
+    expect(db.data.notes[0].dirty).toBe(false);
+  });
+  it('encrypts an imported legacy note during the first sync', async () => {
+    const n = local();
+    gh.set(n);
+    const before = gh.files.get(n.id)!.sha;
+    const read = gh.read.bind(gh);
+    gh.read = async (settings, file) => {
+      file.needsEncryption = true;
+      return read(settings, file);
+    };
+    await run();
+    expect(gh.files.get(n.id)!.sha).not.toBe(before);
+    expect(db.data.notes[0].dirty).toBe(false);
+  });
+  it('stops before uploads, deletes or local changes if any encrypted note cannot be decrypted', async () => {
+    const n = local();
+    await db.save(n);
+    gh.set(local());
+    const before = structuredClone(db.data);
+    const remoteBefore = structuredClone([...gh.files]);
+    gh.read = async () => {
+      throw new AppError('locked', '暗号鍵が違います。');
+    };
+    await expect(run()).rejects.toMatchObject({ code: 'locked' });
+    expect(db.data).toEqual(before);
+    expect([...gh.files]).toEqual(remoteBefore);
+  });
   it('merges first sync without dropping unrelated local and remote notes', async () => {
     const a = local(),
       b = local();
