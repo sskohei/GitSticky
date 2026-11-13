@@ -41,6 +41,16 @@ jobs:
       - run: pnpm lint
       - run: pnpm test --maxWorkers=1
       - run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
+      - name: Read release notes
+        id: notes
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $notes = Get-Content "docs/release-notes-v$version.md" -Raw -Encoding utf8
+          $delimiter = "notes_$([guid]::NewGuid().ToString('N'))"
+          "body<<$delimiter" | Add-Content $env:GITHUB_OUTPUT
+          $notes | Add-Content $env:GITHUB_OUTPUT
+          $delimiter | Add-Content $env:GITHUB_OUTPUT
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,7 +59,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: StickyNote v__VERSION__
-          releaseBody: '更新内容を記載してから公開してください。'
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true

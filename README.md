@@ -18,7 +18,7 @@ Tauri v2 / React / TypeScript (strict) / Vite / pnpm / Tailwind CSS / shadcn形�
 
 ## Windowsへのインストール
 
-[GitHub Releases](https://github.com/sskohei/GitSticky/releases) から `StickyNote_*_x64-setup.exe` をダウンロードして実行します。初回公開前はダウンロードできるReleaseがありません。対象はWindows 10 / 11のx64版です。インストーラーは日本語・英語に対応し、現在のユーザー用にインストールします。WebView2がない場合はセットアップ時にダウンロードするため、インターネット接続が必要です。
+[GitHub Releases](https://github.com/sskohei/GitSticky/releases) から `StickyNote_*_x64-setup.exe` をダウンロードして実行します。対象はWindows 10 / 11のx64版です。インストーラーは日本語・英語に対応し、現在のユーザー用にインストールします。WebView2がない場合はセットアップ時にダウンロードするため、インターネット接続が必要です。
 
 メモの作成・編集はオフラインで利用できます。GitHub同期を使う場合はアプリの設定からGitHubに接続し、非公開リポジトリと同期用の暗号鍵を設定してください。暗号鍵は別の安全な場所へ控えてください。GitHubの接続情報は端末ごとに登録します。
 
