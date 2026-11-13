@@ -29,8 +29,12 @@ zeroize = { version = "1", features = ["derive"] }
 async-trait = "0.1"
 
 [target.'cfg(windows)'.dependencies]
+tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
 windows-sys = { version = "0.61", features = ["Win32_Security_Cryptography", "Win32_Foundation", "Win32_System_Memory", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+minisign-verify = "0.3"
 
 # Stronghold's default snapshot work factor is intentionally unchanged. Optimize
 # these CPU-heavy primitives even in dev builds so vault operations stay usable.

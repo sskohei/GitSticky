@@ -6,6 +6,7 @@ import type { LocalDatabase } from './db';
 import { Board } from './features/notes/Board';
 import { type EditorHandle } from './features/editor/Editor';
 import { useSync } from './features/sync/useSync';
+import { UpdateNotice } from './features/updater/UpdateNotice';
 import { newNote } from './lib/notes';
 import { useApp } from './stores/app';
 import { useAuth } from './stores/auth';
@@ -23,12 +24,13 @@ export function App({ db }: { db: LocalDatabase }) {
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [installing, setInstalling] = useState(false);
   const editorRef = useRef<EditorHandle>(null);
   const flush = useCallback(async () => {
     await editorRef.current?.flush();
   }, []);
   const closeEditor = useCallback(() => setEditor(null), []);
-  const sync = useSync(db, unlocked, flush, showSettings);
+  const sync = useSync(db, unlocked, flush, showSettings || installing);
   useEffect(() => {
     void useAuth
       .getState()
@@ -124,6 +126,11 @@ export function App({ db }: { db: LocalDatabase }) {
         </div>
       </header>
       <main>
+        <UpdateNotice
+          disabled={!ready || sync.busy || creating || showSettings || !!editor}
+          flush={flush}
+          onInstalling={setInstalling}
+        />
         <section className="intro">
           <div>
             <span className="eyebrow">A PLACE FOR YOUR THOUGHTS</span>

@@ -24,6 +24,14 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'none'"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "requireSignedVersion": true,
+      "endpoints": ["https://github.com/sskohei/GitSticky/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
     "icon": [
@@ -35,7 +43,20 @@
     ],
     "targets": ["nsis"],
     "shortDescription": "GitHubと同期する付箋メモ",
+    "publisher": "sskohei",
+    "homepage": "https://github.com/sskohei/GitSticky",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
     "category": "Productivity",
+    "windows": {
+      "certificateThumbprint": null,
+      "signCommand": null,
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["Japanese", "English"],
+        "displayLanguageSelector": true
+      }
+    },
     "android": {
       "minSdkVersion": 24
     }

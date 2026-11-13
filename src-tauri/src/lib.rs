@@ -11,6 +11,18 @@ mod oauth;
 mod repository;
 mod secure_store;
 mod sync_security;
+#[tauri::command]
+fn app_update_supported(app: tauri::AppHandle) -> bool {
+    cfg!(windows)
+        && app
+            .config()
+            .plugins
+            .0
+            .get("updater")
+            .and_then(|config| config.get("pubkey"))
+            .and_then(|key| key.as_str())
+            .is_some_and(|key| !key.trim().is_empty())
+}
 use tauri::Manager;
 #[cfg(test)]
 mod acl_tests;
@@ -19,6 +31,8 @@ mod tests;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
+    #[cfg(windows)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(windows)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
         if let Some(window) = app.get_webview_window("main") {
@@ -55,6 +69,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            app_update_supported,
             backups::db_backups,
             backups::db_restore_backup,
             repository::security_rotate_sync_key,
