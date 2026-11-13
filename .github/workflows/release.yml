@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
