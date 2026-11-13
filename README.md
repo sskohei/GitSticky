@@ -26,6 +26,10 @@ Tauri v2 / React / TypeScript (strict) / Vite / pnpm / Tailwind CSS / shadcn形�
 
 公開担当者向け: [Windows公開手順と確認項目](docs/windows-release.md) / [アプリ内更新の署名設定](docs/updates.md)
 
+## 開発に参加する
+
+初めて参加する方は [貢献ガイド](CONTRIBUTING.md) を参照してください。forkからPR提出までの流れ、変更に応じた検証方法をまとめています。[開発ガイド](docs/development.md) ではcloneから初回起動、コードの探し方、Androidの追加準備、トラブル対処を説明しています。設計資料は [ドキュメント一覧](docs/README.md) から参照できます。
+
 ## Windowsでの開発
 
 Node.js 22.12以上（検証環境は24）、pnpm 10、Rust stable 1.94以上のMSVCツールチェーン、Visual Studio C++ Build Tools、WebView2を用意してください。[Tauri公式の前提条件](https://v2.tauri.app/start/prerequisites/)も参照してください。
@@ -110,4 +114,4 @@ Windowsの成果物は `src-tauri/target/release/bundle/nsis/`、Android APKは 
 - 競合は3-way mergeせず、ローカル版を「（競合コピー）」として保存し、元メモをGitHub版に更新します。コピーは次回同期対象です。
 - 実リポジトリへの接続と端末間同期の検証には、登録済みGitHub Appと利用者によるブラウザ認可が必要です。実施状況は [検証記録](docs/testing.md) を参照してください。
 
-設計: [architecture](docs/architecture.md) / [database](docs/database.md) / [github-sync](docs/github-sync.md) / [ui-spec](docs/ui-spec.md) / [development](docs/development.md)
+開発・設計資料: [ドキュメント一覧](docs/README.md) / [開発ガイド](docs/development.md) / [貢献ガイド](CONTRIBUTING.md)
