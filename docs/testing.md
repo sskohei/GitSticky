@@ -2,6 +2,30 @@
 
 現在の実行コマンドは [開発ガイド](development.md)、PRでの検証の目安は [貢献ガイド](../CONTRIBUTING.md) を参照してください。以下の日付付き記録は当時の結果であり、新しい環境や変更後の検証を代替しません。
 
+## 無料の更新署名の設定（2026-11-13、公開準備の続き）
+
+- 個人利用の方針に合わせ、Authenticode証明書は未設定のまま、Tauriの更新署名用の鍵を生成した。秘密鍵はリポジトリ外の `%USERPROFILE%/.tauri/gitsticky/updater.key` にパスワード付きで保存し、パスワードはWindows DPAPIで保護。ディレクトリのACLは現在のユーザーとSYSTEMのみ。秘密鍵やパスワードはログ・ソースに出していない。
+- GitHub `sskohei/GitSticky` に `STICKYNOTE_UPDATER_PUBLIC_KEY` Variable、`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` Secretsを登録。セットアップ再実行で鍵が変わらないことも確認した。
+- `release:setup` / `release:build` と生成物の検証スクリプトを追加。CIも更新署名とAuthenticode未署名の両方を確認する。署名されたバージョンが更新情報と一致することをアプリで必須にした。
+- 実際のインストーラーを用い、正しい署名の受け入れ、改ざんしたファイル・誤公開鍵・不一致バージョン・改ざんした署名内バージョンの拒否を確認。検証にはアプリの更新プラグインと同じ `minisign-verify` を使用し、インストーラーを起動していない。
+- 配布方針に反するAuthenticode設定、バージョン検証の無効化、不正形式の公開鍵を拒否することを確認。不正公開鍵で既存の有効な設定が上書きされないことも確認した。PowerShell全スクリプトの構文チェック、ESLint、Prettier、YAML解析が成功。
+- 公開鍵を埋め込んだ `.exe` と `.exe.sig` を生成した。`.exe` は5,056,723 bytes、SHA-256は `120EADFD643127D22B280472BDD1072D4329BEA8D7E06D9CDC72341853155BA4`、Authenticodeは `NotSigned`、更新署名と署名内の `0.1.0` は検証成功。成果物は `src-tauri/target/release/bundle/nsis/` にある。
+- ビルド済みアプリ本体に設定した公開鍵が埋め込まれていることを確認。`cargo fmt -- --check` と `cargo clippy --lib --tests --examples --locked -- -D warnings` も成功した。
+
+鍵・パスワードの外部バックアップは利用者が行う必要がある。DPAPIファイルをコピーするだけでは別PCで復号できないため、[バックアップ手順](updates.md) を参照。GitHub Actionsのリモート実行、Release公開、OSでのインストール・更新、実GitHubでの端末間同期はこの作業では行っていない。
+
+## Windows公開準備（2026-11-13）
+
+- 型チェック・ESLint・フロントエンド本番ビルドが成功。Vitestは全70件成功。テスト探索を `src/**/*.test.{ts,tsx}` に限定した後、更新機能の8件も成功した。
+- Rustの `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked` は全50件成功。`cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` と `cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests --locked -- -D warnings` も成功。
+- `pnpm.cmd release:check` が成功。一時ディレクトリに設定をコピーし、不一致のタグ・package.jsonのバージョンがそれぞれ失敗になることを確認。
+- `pnpm audit` は脆弱性の報告0件。変更ファイルのPrettier、ワークフローのYAML解析、`git diff --check` が成功。
+- 日本語・英語のNSIS設定、ライセンス表示、公開前チェック、PR用Windows CI、公開手順、初回Release本文案を追加。既存のドラフトReleaseワークフローにもバージョンチェック・固定lockfileでのビルドを適用した。
+- `pnpm.cmd tauri build --bundles nsis -- --locked` が成功。確認用の `src-tauri/target/release/bundle/nsis/StickyNote_0.1.0_x64-setup.exe` を生成した（5,049,834 bytes、SHA-256: `B61A1A059A0E023466F5AAA9B7805E297A52CFF4A29D36DBB7CE61409D0F63C8`）。Authenticodeは `NotSigned`、更新用の公開鍵も含まないローカル確認用ビルド。
+- ビルド時には従来のlibsodiumのPDB欠落（LNK4099）と、遅延読込するMarkdownエディタのチャンクサイズの警告が出る。リンク・インストーラー生成は成功した。
+
+実際の署名付きアプリ更新、テスト用GitHubでの端末間同期、インストール・アンインストールの実機操作は未実施。この作業では更新用の鍵を作成せず、GitHub ActionsのSecrets / Variableが未登録であることを確認した。リモートのワークフロー実行、タグのpush、Releaseの公開も行っていない。手順と残作業は [windows-release.md](windows-release.md) を参照。
+
 ## 自動検証
 
 Vitest / React Testing Libraryでローカル作成、検索、ソート、タイトル、色、ピン、500ms自動保存、閉じる前保存、削除マーカー、保存失敗時の入力維持、危険HTML/URLを検証する。

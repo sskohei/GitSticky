@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "updater",
+  "description": "Signed Windows updates from the trusted main webview",
+  "windows": ["main"],
+  "webviews": ["main"],
+  "platforms": ["windows"],
+  "permissions": ["updater:default", "core:resources:allow-close"]
+}

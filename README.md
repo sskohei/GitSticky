@@ -12,8 +12,19 @@ Windows / Android向けの、GitHub同期型付箋メモアプリです。メモ
 - 手動同期、設定で有効にした場合の起動・復帰・編集後15秒の自動同期（新規設定では無効）
 - Light / Dark / Systemテーマ、GitHub Appでのログイン、認証の自動更新
 - AES-256-GCMによるメモのローカル・同期時の暗号化、Windows DPAPI / Android Keystoreによる鍵と認証情報の保護
+- Windows版の更新通知とワンクリック更新（[配信設定](docs/updates.md)）
 
 Tauri v2 / React / TypeScript (strict) / Vite / pnpm / Tailwind CSS / shadcn形式のRadix UI / Lucide / Zustand / SQLite (SQLx) / Rust / reqwestを使用します。
+
+## Windowsへのインストール
+
+[GitHub Releases](https://github.com/sskohei/GitSticky/releases) から `StickyNote_*_x64-setup.exe` をダウンロードして実行します。対象はWindows 10 / 11のx64版です。インストーラーは日本語・英語に対応し、現在のユーザー用にインストールします。WebView2がない場合はセットアップ時にダウンロードするため、インターネット接続が必要です。
+
+メモの作成・編集はオフラインで利用できます。GitHub同期を使う場合はアプリの設定からGitHubに接続し、非公開リポジトリと同期用の暗号鍵を設定してください。暗号鍵は別の安全な場所へ控えてください。GitHubの接続情報は端末ごとに登録します。
+
+個人利用向けに、インストーラーのWindows発行元署名は付けていません。Windowsの警告が表示される場合があります。アプリ内更新では、無料で生成した専用鍵によって更新ファイルの署名とバージョンを検証します。
+
+公開担当者向け: [Windows公開手順と確認項目](docs/windows-release.md) / [アプリ内更新の署名設定](docs/updates.md)
 
 ## 開発に参加する
 
@@ -90,7 +101,7 @@ pnpm.cmd tauri build --bundles nsis
 
 `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` でも全Rustユニットテストを実行できます。開発ビルドでも主要な暗号プリミティブを最適化し、Strongholdの暗号化強度を維持したまま待ち時間を抑えています。
 
-Windowsの成果物は `src-tauri/target/release/bundle/nsis/`、Android APKは `src-tauri/gen/android/app/build/outputs/apk/` に生成されます。リリース署名と配布用証明書は利用者側で設定してください。
+Windowsの成果物は `src-tauri/target/release/bundle/nsis/`、Android APKは `src-tauri/gen/android/app/build/outputs/apk/` に生成されます。Windowsの配布用ビルドは `pnpm.cmd release:build` を使用します。初回の更新用署名鍵の設定は [updates.md](docs/updates.md) を参照してください。有料のWindows証明書は使用しません。
 
 ## データと制約
 

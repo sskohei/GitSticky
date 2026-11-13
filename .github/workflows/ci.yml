@@ -1,0 +1,49 @@
+name: Windows checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      # Upgrade the release compiler explicitly after validating it locally and in CI.
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: clippy, rustfmt
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm release:check
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test --maxWorkers=1
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked -- --nocapture
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests --examples --locked -- -D warnings
+      - name: Build unsigned installer for testing
+        run: pnpm tauri build --bundles nsis -- --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StickyNote-windows-x64-unsigned
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 7

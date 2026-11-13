@@ -1203,3 +1203,23 @@ p {
     transition: none !important;
   }
 }
+
+.update-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px;
+  margin: 20px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.update-notice p {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.update-progress {
+  padding: 24px;
+  max-width: 440px;
+}

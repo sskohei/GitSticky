@@ -1,0 +1,71 @@
+name: Windows release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm release:check
+      - name: Check updater signing configuration
+        shell: pwsh
+        env:
+          STICKYNOTE_UPDATER_PUBLIC_KEY: ${{ vars.STICKYNOTE_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) { throw 'Missing TAURI_SIGNING_PRIVATE_KEY secret' }
+          ./scripts/updater-config.ps1
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test --maxWorkers=1
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
+      - name: Read release notes
+        id: notes
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $notes = Get-Content "docs/release-notes-v$version.md" -Raw -Encoding utf8
+          $delimiter = "notes_$([guid]::NewGuid().ToString('N'))"
+          "body<<$delimiter" | Add-Content $env:GITHUB_OUTPUT
+          $notes | Add-Content $env:GITHUB_OUTPUT
+          $delimiter | Add-Content $env:GITHUB_OUTPUT
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: StickyNote v__VERSION__
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          args: --bundles nsis --config src-tauri/tauri.updater.local.json -- --locked
+      - name: Verify personal distribution signatures
+        shell: pwsh
+        env:
+          STICKYNOTE_UPDATER_PUBLIC_KEY: ${{ vars.STICKYNOTE_UPDATER_PUBLIC_KEY }}
+        run: ./scripts/verify-windows-release.ps1

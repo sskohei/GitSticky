@@ -4,6 +4,7 @@ fn main() {
     println!("cargo:rerun-if-changed=github-app.json");
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
+            "app_update_supported",
             "db_backups",
             "db_restore_backup",
             "security_rotate_sync_key",
