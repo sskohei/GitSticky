@@ -64,6 +64,25 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.useRealTimers());
+it('starts with auto sync off and saves an explicit change', async () => {
+  const db = new MemoryDatabase();
+  await db.settings(defaultSettings);
+  const { unmount } = render(<SettingsDialog db={db} onClose={() => {}} />);
+  const toggle = screen.getByRole('checkbox', { name: '自動同期を有効にする' });
+  expect(toggle).not.toBeChecked();
+  fireEvent.click(toggle);
+  expect((await db.snapshot()).settings.auto_sync_enabled).toBe(false);
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: '表示・自動同期の設定を保存' }));
+  });
+  expect((await db.snapshot()).settings.auto_sync_enabled).toBe(true);
+
+  unmount();
+  render(<SettingsDialog db={db} onClose={() => {}} />);
+  expect(screen.getByRole('checkbox', { name: '自動同期を有効にする' })).toBeChecked();
+});
+
 async function openConnectedSettings() {
   connected = true;
   useAuth.setState({ status: { ...authStatus, connected: true, mode: 'oauth' } });

@@ -29,6 +29,7 @@ pub struct Settings {
     pub repository_owner: String,
     pub repository_name: String,
     pub branch_name: String,
+    #[serde(default)]
     pub auto_sync_enabled: bool,
     pub theme: String,
     pub last_successful_sync_at: Option<String>,
