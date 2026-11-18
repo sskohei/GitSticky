@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MemoryDatabase } from '../../test/fakes';
+import { newNote } from '../../lib/notes';
 import { useApp } from '../../stores/app';
 import { defaultSettings } from '../../types';
 import { useSync } from './useSync';
@@ -15,8 +16,29 @@ vi.mock('./github', () => ({
 }));
 afterEach(() => {
   vi.clearAllMocks();
+  vi.useRealTimers();
   useApp.setState({ notes: [], settings: defaultSettings });
 });
+it('only syncs on manual request when automatic sync is off', async () => {
+  vi.useFakeTimers();
+  const db = new MemoryDatabase();
+  await db.save(newNote());
+  await useApp.getState().refresh(db);
+  const flush = vi.fn(async () => {});
+  const { result } = renderHook(() => useSync(db, true, flush));
+
+  await act(async () => {
+    window.dispatchEvent(new Event('online'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(15000);
+  });
+  expect(flush).not.toHaveBeenCalled();
+  expect(github.list).not.toHaveBeenCalled();
+
+  await act(() => result.current.sync());
+  expect(github.list).toHaveBeenCalledTimes(1);
+});
+
 it('suspends synchronization while connection settings and credentials are being edited', async () => {
   const db = new MemoryDatabase();
   await useApp.getState().refresh(db);

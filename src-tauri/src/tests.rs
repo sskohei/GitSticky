@@ -1,8 +1,24 @@
 use crate::{
     commands::ack,
-    models::{Note, SyncState},
+    models::{Note, Settings, SyncState},
 };
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+
+#[test]
+fn automatic_sync_defaults_to_off_and_preserves_an_explicit_opt_in() {
+    let defaults = Settings::default();
+    assert!(!defaults.auto_sync_enabled);
+
+    let mut saved = serde_json::to_value(defaults).unwrap();
+    saved.as_object_mut().unwrap().remove("auto_sync_enabled");
+    let settings: Settings = serde_json::from_value(saved.clone()).unwrap();
+    assert!(!settings.auto_sync_enabled);
+
+    saved["auto_sync_enabled"] = true.into();
+    let settings: Settings = serde_json::from_value(saved).unwrap();
+    assert!(settings.auto_sync_enabled);
+}
+
 fn cipher() -> crate::crypto::NoteCipher {
     crate::crypto::NoteCipher::new([42; 32])
 }

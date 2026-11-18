@@ -404,20 +404,24 @@ export function SettingsDialog({ db, onClose }: { db: LocalDatabase; onClose: ()
             <option value="dark">ダーク</option>
           </select>
         </label>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={form.auto_sync_enabled}
-            onChange={(e) => setForm({ ...form, auto_sync_enabled: e.target.checked })}
-          />
-          自動同期を有効にする
-        </label>
         <h3>
           <Github size={19} />
           GitHubとの同期
         </h3>
         <p className="hint">
           非公開リポジトリだけに同期します。メモのタイトル・本文・タグは端末内と送信前に暗号化されます。ログイン情報は端末で保護されます。
+        </p>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            aria-describedby="auto-sync-hint"
+            checked={form.auto_sync_enabled}
+            onChange={(e) => setForm({ ...form, auto_sync_enabled: e.target.checked })}
+          />
+          自動同期を有効にする
+        </label>
+        <p id="auto-sync-hint" className="hint">
+          初期設定ではオフです。オフのときはホーム画面の「同期」から手動で同期できます。
         </p>
         {auth.error && (
           <div>
